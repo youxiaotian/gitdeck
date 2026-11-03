@@ -1,0 +1,313 @@
+# 本地 HTTP API
+
+## 通用约定
+
+- 基础地址：`http://127.0.0.1:<端口>`。
+- 默认端口：`4321`。
+- 所有 `/api/*` 请求必须携带 `X-GitDeck-Token`。
+- 修改数据的请求需要 `Content-Type: application/json`。
+- 错误返回 HTTP 状态码和 `{ "error": "提示信息" }`。
+- 服务端不提供任意 shell 或任意 Git 参数接口。
+
+令牌通过以下 meta 标签注入页面：
+
+```html
+<meta name="gitdeck-token" content="...">
+```
+
+## 初始化
+
+### `GET /api/bootstrap`
+
+返回工作区、仓库、平台和版本。
+
+```json
+{
+  "workspaces": [
+    {
+      "id": "workspace-default",
+      "name": "默认工作区",
+      "createdAt": "2026-10-27T02:26:30.454Z"
+    }
+  ],
+  "repositories": [
+    {
+      "id": "368a329adeae",
+      "name": "AgisoCodes",
+      "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
+      "workspaceId": "workspace-default",
+      "addedAt": "2026-10-26T07:51:09.563Z"
+    }
+  ],
+  "platform": "win32",
+  "version": "1.0.0"
+}
+```
+
+## 工作区接口
+
+### `POST /api/workspaces`
+
+创建名称唯一的工作区。
+
+```json
+{ "name": "多平台" }
+```
+
+返回：`201 { "workspace": { ... } }`。
+
+### `PATCH /api/workspaces/:id`
+
+重命名工作区。
+
+```json
+{ "name": "后端服务" }
+```
+
+### `DELETE /api/workspaces/:id`
+
+删除工作区，并把其中的仓库移动到第一个剩余工作区。最后一个工作区不能删除。
+
+```json
+{
+  "removed": true,
+  "workspaceId": "workspace-default",
+  "movedRepositoryCount": 4
+}
+```
+
+## 仓库接口
+
+### `POST /api/repositories`
+
+添加仓库，或把已存在的仓库移动到指定工作区。
+
+```json
+{
+  "path": "C:\\Repository\\Project",
+  "workspaceId": "ws_1234567890ab"
+}
+```
+
+返回：`201 { "repository": { ... } }`。
+
+### `POST /api/repositories/remove`
+
+从一个工作区批量移除仓库元数据，不操作物理目录。
+
+```json
+{
+  "workspaceId": "ws_1234567890ab",
+  "ids": ["368a329adeae", "455499f4ab0c"]
+}
+```
+
+返回：
+
+```json
+{ "removedIds": ["368a329adeae", "455499f4ab0c"] }
+```
+
+### `POST /api/repositories/reorder`
+
+保存一个工作区的仓库顺序。
+
+```json
+{
+  "workspaceId": "ws_1234567890ab",
+  "ids": ["order-first", "order-second"]
+}
+```
+
+`ids` 必须完整覆盖该工作区当前所有仓库且不能重复。
+
+### `POST /api/repositories/:id/workspace`
+
+把单个仓库移动到另一个工作区。
+
+```json
+{ "workspaceId": "workspace-default" }
+```
+
+### `DELETE /api/repositories/:id`
+
+从 GitDeck 元数据中移除单个仓库，不删除磁盘目录。
+
+## 扫描和目录浏览器
+
+### `POST /api/discover`
+
+扫描目录中的 Git 仓库。
+
+```json
+{ "root": "C:\\Repository", "depth": 3 }
+```
+
+深度会限制在 `1..6`。
+
+### `POST /api/directories/list`
+
+为内置目录选择器返回目录信息。
+
+```json
+{ "path": "C:\\Repository" }
+```
+
+响应包含 `currentPath`、`parentPath`、`directories`、`roots`、`quickPaths` 和 `isRepository`。
+
+## 仓库状态和详情
+
+### `GET /api/repositories/:id/status`
+
+返回左侧仓库列表使用的轻量摘要。
+
+### `GET /api/repositories/:id/detail`
+
+返回仓库元数据、状态、最近 50 条提交、本地分支、Stash、远端、远程分支匹配和目标信息。
+
+### `GET /api/repositories/:id/history?scope=all&limit=100`
+
+返回带 Git 图线的提交历史。
+
+- `scope=all`：包含所有本地和远程跟踪分支，对应 `git log --all`。
+- `scope=current`：只包含当前分支。
+- `limit` 限制在 `20..200`。
+
+```json
+{
+  "scope": "all",
+  "branch": "main",
+  "maxGraphWidth": 22,
+  "rows": [
+    {
+      "type": "commit",
+      "graph": "* ",
+      "shortHash": "f410fb8597",
+      "author": "youxiaojun",
+      "date": "2026-11-02T17:23:10+08:00",
+      "decorations": "HEAD -> main, origin/main",
+      "subject": "提交主题"
+    },
+    {
+      "type": "connector",
+      "graph": "|/"
+    }
+  ]
+}
+```
+
+## Diff
+
+### `GET /api/repositories/:id/diff?path=src/a.js&staged=0`
+
+返回纯文本补丁。
+
+- `staged=1`：索引与 HEAD 比较。
+- `staged=0`：工作区与索引比较。
+- 未跟踪文本文件会生成模拟的新文件补丁。
+
+```json
+{ "diff": "diff --git ..." }
+```
+
+## 文件读取和保存
+
+### `GET /api/repositories/:id/file?path=src/a.js`
+
+返回可编辑的 UTF-8 内容。
+
+```json
+{
+  "path": "src/a.js",
+  "content": "统一换行为 LF 的内容",
+  "lineEnding": "\n",
+  "hash": "sha256...",
+  "size": 1234,
+  "editable": true
+}
+```
+
+超过 512 KB 的文件和二进制文件会被拒绝。
+
+### `POST /api/repositories/:id/file`
+
+带冲突检测地保存文本。
+
+```json
+{
+  "path": "src/a.js",
+  "content": "修改后的内容",
+  "expectedHash": "sha256...",
+  "lineEnding": "\r\n"
+}
+```
+
+解析后指向仓库外部的符号链接会被拒绝；`expectedHash` 不匹配时返回 HTTP 409。
+
+## 仓库动作
+
+### `POST /api/repositories/:id/action`
+
+请求必须包含 `action`。成功后返回完整仓库详情、`output`，必要时返回 `warnings`。
+
+| 动作 | 参数 | 行为 |
+| --- | --- | --- |
+| `fetch` | `{}` | `git fetch --all --prune` |
+| `pull` | `{}` | `git pull --ff-only` |
+| `push` | `{}` | `git push` |
+| `stageAll` | `{}` | 暂存全部改动 |
+| `stageFile` | `{ "path" }` | 暂存单个文件 |
+| `stageFiles` | `{ "paths": [] }` | 一次暂存多个选中文件 |
+| `unstageAll` | `{}` | 取消全部暂存 |
+| `unstageFile` | `{ "path" }` | 取消单文件暂存 |
+| `discardFile` | `{ "path" }` | 还原已跟踪文件或删除未跟踪文件 |
+| `discardFiles` | `{ "paths": [] }` | 批量还原并只刷新一次状态 |
+| `commit` | `{ "message", "amend" }` | 提交全部已暂存内容 |
+| `commitSelected` | `{ "paths": [], "message", "amend" }` | 只暂存并提交选中文件 |
+| `checkoutBranch` | `{ "name" }` | 切换分支 |
+| `createBranch` | `{ "name" }` | 创建并切换分支 |
+| `deleteBranch` | `{ "name", "deleteRemote", "forceDelete" }` | 删除本地分支，可选强制 `-D` 和删远程 |
+| `deleteBranches` | `{ "branches": [{ "name", "deleteRemote", "forceDelete" }] }` | 批量删除本地分支并分组删除远程 |
+| `mergeBranch` | `{ "name" }` | 合并到当前分支 |
+| `stashSave` | `{ "message" }` | 保存包含未跟踪文件的 Stash |
+| `stashPop` | `{ "ref": "stash@{0}" }` | 恢复 Stash |
+| `openExplorer` | `{}` | 打开仓库目录 |
+| `openTerminal` | `{}` | 在仓库目录打开终端 |
+| `openTortoiseGit` | `{}` | 用当前仓库打开 TortoiseGit 日志界面 |
+
+响应结构：
+
+```json
+{
+  "repository": {},
+  "summary": {},
+  "commits": [],
+  "branches": [],
+  "stashes": [],
+  "remotes": [],
+  "output": "可读的操作结果",
+  "warnings": []
+}
+```
+
+## 远程分支删除安全规则
+
+- 本地分支使用 `git branch -d` 安全删除。
+- `forceDelete=true` 时使用 `git branch -D`，会丢失未合并提交。
+- 只有对应本地分支成功删除后，才处理远程分支。
+- 远程目标来自本地分支上游或匹配的远程跟踪引用。
+- 同一远端的远程分支合并为一次 push。
+- 部分失败通过 `warnings` 返回。
+
+## 常见状态码
+
+| 状态码 | 含义 |
+| --- | --- |
+| 400 | 参数无效或仓库动作不支持 |
+| 403 | 会话令牌无效或来源不可信 |
+| 404 | 工作区、仓库、文件或接口不存在 |
+| 409 | 工作区重名或文件哈希冲突 |
+| 410 | 仓库目录移动或不可访问 |
+| 413 | 文件过大 |
+| 415 | 二进制文件不能进入编辑器 |
+| 422 | Git 命令执行失败 |

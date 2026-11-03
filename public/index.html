@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="gitdeck-token" content="__GITDECK_TOKEN__" />
+    <title>GitDeck - 多仓工作台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <svg class="icon-definitions" aria-hidden="true">
+      <defs>
+        <symbol id="i-git-branch" viewBox="0 0 24 24">
+          <path d="M6 3v12" />
+          <circle cx="18" cy="6" r="3" />
+          <circle cx="6" cy="18" r="3" />
+          <path d="M18 9a9 9 0 0 1-9 9" />
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+          <path d="M21 12a9 9 0 0 0-15.5-6.2L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M3 12a9 9 0 0 0 15.5 6.2L21 16" />
+          <path d="M16 16h5v5" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24">
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 21h14" />
+        </symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24">
+          <path d="M12 21V9" />
+          <path d="m17 14-5-5-5 5" />
+          <path d="M5 3h14" />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24">
+          <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+        </symbol>
+        <symbol id="i-folder-open" viewBox="0 0 24 24">
+          <path d="m6 14 1.5-2.9A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.4 6A2 2 0 0 1 18.5 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9L11 6h6a2 2 0 0 1 2 2v2" />
+        </symbol>
+        <symbol id="i-external-link" viewBox="0 0 24 24">
+          <path d="M15 3h6v6" />
+          <path d="m10 14 11-11" />
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24">
+          <path d="M5 12h14" />
+          <path d="M12 5v14" />
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-4-4" />
+        </symbol>
+        <symbol id="i-scan" viewBox="0 0 24 24">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+          <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+          <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+          <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+          <path d="M7 12h10" />
+        </symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24">
+          <rect width="18" height="16" x="3" y="4" rx="2" />
+          <path d="m7 9 3 3-3 3" />
+          <path d="M13 15h4" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+          <path d="m5 12 4 4L19 6" />
+        </symbol>
+        <symbol id="i-x" viewBox="0 0 24 24">
+          <path d="m6 6 12 12" />
+          <path d="M18 6 6 18" />
+        </symbol>
+        <symbol id="i-minus" viewBox="0 0 24 24">
+          <path d="M5 12h14" />
+        </symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24">
+          <path d="M9 14 4 9l5-5" />
+          <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+        </symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24">
+          <path d="M2.1 12a10.2 10.2 0 0 1 19.8 0 10.2 10.2 0 0 1-19.8 0Z" />
+          <circle cx="12" cy="12" r="3" />
+        </symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24">
+          <path d="M3 6h18" />
+          <path d="M8 6V4h8v2" />
+          <path d="m19 6-1 15H6L5 6" />
+          <path d="M10 11v5" />
+          <path d="M14 11v5" />
+        </symbol>
+        <symbol id="i-history" viewBox="0 0 24 24">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M12 7v5l3 2" />
+        </symbol>
+        <symbol id="i-commit" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M3 12h6" />
+          <path d="M15 12h6" />
+        </symbol>
+        <symbol id="i-pencil" viewBox="0 0 24 24">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+        </symbol>
+        <symbol id="i-save" viewBox="0 0 24 24">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+          <path d="M17 21v-8H7v8" />
+          <path d="M7 3v5h8" />
+        </symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24">
+          <path d="m12.8 2.6 8.5 4.2a.6.6 0 0 1 0 1.1l-8.5 4.2a1.6 1.6 0 0 1-1.6 0L2.7 7.9a.6.6 0 0 1 0-1.1l8.5-4.2a1.6 1.6 0 0 1 1.6 0Z" />
+          <path d="m22 13-9.2 4.6a1.6 1.6 0 0 1-1.6 0L2 13" />
+          <path d="m22 18-9.2 4.6a1.6 1.6 0 0 1-1.6 0L2 18" />
+        </symbol>
+        <symbol id="i-list" viewBox="0 0 24 24">
+          <path d="M8 6h13" />
+          <path d="M8 12h13" />
+          <path d="M8 18h13" />
+          <path d="M3 6h.01" />
+          <path d="M3 12h.01" />
+          <path d="M3 18h.01" />
+        </symbol>
+        <symbol id="i-chevron-down" viewBox="0 0 24 24">
+          <path d="m6 9 6 6 6-6" />
+        </symbol>
+        <symbol id="i-chevron-right" viewBox="0 0 24 24">
+          <path d="m9 18 6-6-6-6" />
+        </symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v4" />
+          <path d="M12 16h.01" />
+        </symbol>
+        <symbol id="i-more" viewBox="0 0 24 24">
+          <circle cx="5" cy="12" r="1" />
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
+        </symbol>
+        <symbol id="i-grip-vertical" viewBox="0 0 24 24">
+          <circle cx="9" cy="5" r="1" />
+          <circle cx="9" cy="12" r="1" />
+          <circle cx="9" cy="19" r="1" />
+          <circle cx="15" cy="5" r="1" />
+          <circle cx="15" cy="12" r="1" />
+          <circle cx="15" cy="19" r="1" />
+        </symbol>
+        <symbol id="i-arrow-up" viewBox="0 0 24 24">
+          <path d="m18 15-6-6-6 6" />
+        </symbol>
+        <symbol id="i-arrow-down" viewBox="0 0 24 24">
+          <path d="m6 9 6 6 6-6" />
+        </symbol>
+        <symbol id="i-corner-down-left" viewBox="0 0 24 24">
+          <path d="m9 10-5 5 5 5" />
+          <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="GitDeck">
+          <span class="brand-mark">
+            <svg class="icon"><use href="#i-git-branch"></use></svg>
+          </span>
+          <span class="brand-copy">
+            <strong>GitDeck</strong>
+            <small>多仓工作台</small>
+          </span>
+        </div>
+
+        <div class="global-summary" id="globalSummary"></div>
+
+        <div class="topbar-actions">
+          <button class="button button-quiet" id="refreshAllButton" type="button" aria-label="刷新所有仓库" title="刷新所有仓库">
+            <svg class="icon"><use href="#i-refresh"></use></svg>
+            <span>刷新</span>
+          </button>
+          <button class="button button-quiet" id="scanButton" type="button" aria-label="扫描目录" title="扫描目录">
+            <svg class="icon"><use href="#i-scan"></use></svg>
+            <span>扫描目录</span>
+          </button>
+          <button class="button button-primary" id="addButton" type="button" aria-label="添加仓库" title="添加仓库">
+            <svg class="icon"><use href="#i-plus"></use></svg>
+            <span>添加仓库</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="repo-sidebar" aria-label="仓库列表">
+          <div class="sidebar-title-row">
+            <div>
+              <span class="eyebrow">本地仓库</span>
+              <h1>仓库</h1>
+            </div>
+            <span class="count-pill" id="repoCount">0</span>
+          </div>
+
+          <div class="workspace-switch-row">
+            <div class="workspace-picker" id="workspacePicker">
+              <button
+                class="workspace-switcher"
+                id="workspaceSwitcher"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded="false"
+              >
+                <span class="workspace-switcher-icon">
+                  <svg class="icon"><use href="#i-layers"></use></svg>
+                </span>
+                <span class="workspace-switcher-copy">
+                  <small>当前工作区</small>
+                  <strong id="activeWorkspaceName">默认工作区</strong>
+                </span>
+                <span class="workspace-repo-count" id="activeWorkspaceRepoCount">0</span>
+                <svg class="icon workspace-chevron"><use href="#i-chevron-down"></use></svg>
+              </button>
+
+              <div class="workspace-dropdown" id="workspaceDropdown" role="menu" hidden>
+                <div class="workspace-dropdown-label">切换工作区</div>
+                <div class="workspace-dropdown-list" id="workspaceDropdownList"></div>
+                <div class="workspace-dropdown-separator"></div>
+                <button type="button" class="workspace-dropdown-action" data-action="create-workspace">
+                  <svg class="icon"><use href="#i-plus"></use></svg>
+                  <span>新建工作区</span>
+                </button>
+                <button type="button" class="workspace-dropdown-action" data-action="open-workspaces">
+                  <svg class="icon"><use href="#i-more"></use></svg>
+                  <span>管理工作区</span>
+                </button>
+              </div>
+            </div>
+            <button
+              class="workspace-add-repository-button"
+              type="button"
+              data-action="add-repository"
+              aria-label="添加仓库到当前工作区"
+            >
+              <svg class="icon"><use href="#i-plus"></use></svg>
+              <span>添加仓库到当前工作区</span>
+            </button>
+          </div>
+
+          <label class="search-field">
+            <svg class="icon"><use href="#i-search"></use></svg>
+            <input
+              id="repoSearch"
+              type="search"
+              placeholder="搜索名称或路径"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <kbd>/</kbd>
+          </label>
+
+          <div class="selection-bar" id="selectionBar" hidden>
+            <span id="selectionCount">已选 0 个</span>
+            <div class="selection-actions">
+              <button type="button" data-bulk-action="fetch">抓取</button>
+              <button type="button" data-bulk-action="pull">拉取</button>
+              <button type="button" data-bulk-action="push">推送</button>
+              <button type="button" class="selection-remove" data-bulk-remove>移出</button>
+              <button type="button" data-bulk-clear aria-label="清除选择">
+                <svg class="icon"><use href="#i-x"></use></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="repo-list" id="repoList"></div>
+
+          <div class="sidebar-footer">
+            <span class="connection-dot"></span>
+            <span>只连接本机 Git</span>
+            <span class="version-label" id="versionLabel"></span>
+          </div>
+        </aside>
+
+        <div
+          class="column-resizer workspace-resizer"
+          data-resizer="sidebar"
+          role="separator"
+          aria-label="调整仓库列表宽度"
+          aria-orientation="vertical"
+          aria-valuemin="200"
+          aria-valuemax="420"
+          tabindex="0"
+        ></div>
+
+        <main class="main-panel" id="mainPanel">
+          <section class="empty-state" id="emptyState">
+            <div class="empty-visual" aria-hidden="true">
+              <div class="empty-branch-line"></div>
+              <div class="empty-node node-one"></div>
+              <div class="empty-node node-two"></div>
+              <div class="empty-node node-three"></div>
+              <svg class="icon"><use href="#i-git-branch"></use></svg>
+            </div>
+            <span class="eyebrow">多仓库总览</span>
+            <h2 id="emptyTitle">把常用仓库放进同一个视图</h2>
+            <p id="emptyDescription">
+              添加一个仓库，或扫描上级目录。GitDeck 会汇总分支、未提交改动和领先/落后状态。
+            </p>
+            <div class="empty-actions">
+              <button class="button button-primary" id="emptyAddButton" type="button">
+                <svg class="icon"><use href="#i-plus"></use></svg>
+                添加仓库
+              </button>
+              <button class="button button-secondary" id="emptyScanButton" type="button">
+                <svg class="icon"><use href="#i-scan"></use></svg>
+                扫描目录
+              </button>
+            </div>
+          </section>
+
+          <section class="loading-state" id="loadingState" hidden>
+            <div class="spinner"></div>
+            <span>正在读取仓库状态</span>
+          </section>
+
+          <section class="repo-error-state" id="repoErrorState" hidden>
+            <svg class="icon error-icon"><use href="#i-alert"></use></svg>
+            <div>
+              <h2>无法读取这个仓库</h2>
+              <p id="repoErrorMessage"></p>
+            </div>
+            <button class="button button-secondary" id="removeUnavailableButton" type="button">
+              从列表移除
+            </button>
+          </section>
+
+          <section class="repo-view" id="repoView" hidden>
+            <header class="repo-commandbar">
+              <div class="repo-identity">
+                <span class="repo-avatar">
+                  <svg class="icon"><use href="#i-folder"></use></svg>
+                </span>
+                <div class="repo-identity-copy">
+                  <div class="repo-name-row">
+                    <h2 id="repoName"></h2>
+                    <span class="state-chip" id="repoStateChip"></span>
+                  </div>
+                  <button class="repo-path" id="repoPathButton" type="button">
+                    <span id="repoPath"></span>
+                    <svg class="icon"><use href="#i-folder-open"></use></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="commandbar-actions">
+                <button class="button button-quiet" type="button" data-repo-action="openExplorer" data-tooltip="打开仓库目录">
+                  <svg class="icon"><use href="#i-folder-open"></use></svg>
+                  <span>目录</span>
+                </button>
+                <button class="button button-quiet" type="button" data-repo-action="openTerminal" data-tooltip="在仓库目录打开终端">
+                  <svg class="icon"><use href="#i-terminal"></use></svg>
+                  <span>终端</span>
+                </button>
+                <button class="button button-quiet" type="button" data-repo-action="openTortoiseGit" data-tooltip="在 TortoiseGit 中查看仓库">
+                  <svg class="icon"><use href="#i-external-link"></use></svg>
+                  <span>TortoiseGit</span>
+                </button>
+                <span class="action-divider"></span>
+                <button class="button button-secondary" type="button" data-repo-action="fetch">
+                  <svg class="icon"><use href="#i-download"></use></svg>
+                  <span>抓取</span>
+                </button>
+                <button class="button button-secondary" type="button" data-repo-action="pull">
+                  <svg class="icon"><use href="#i-arrow-down"></use></svg>
+                  <span>拉取</span>
+                </button>
+                <button class="button button-secondary" type="button" data-repo-action="push">
+                  <svg class="icon"><use href="#i-upload"></use></svg>
+                  <span>推送</span>
+                </button>
+              </div>
+            </header>
+
+            <div class="repo-status-strip">
+              <div class="branch-block">
+                <span class="field-label">当前分支</span>
+                <label class="branch-select-wrap">
+                  <svg class="icon"><use href="#i-git-branch"></use></svg>
+                  <select id="branchSelect" aria-label="切换分支"></select>
+                  <svg class="icon select-chevron"><use href="#i-chevron-down"></use></svg>
+                </label>
+              </div>
+              <div class="sync-block" id="syncBlock"></div>
+              <div class="status-metrics" id="statusMetrics"></div>
+            </div>
+
+            <nav class="view-tabs" aria-label="仓库视图">
+              <button type="button" data-repo-tab="changes" class="view-tab active">
+                <span>工作区</span>
+                <span class="tab-count" id="changesTabCount">0</span>
+              </button>
+              <button type="button" data-repo-tab="history" class="view-tab">
+                <svg class="icon"><use href="#i-history"></use></svg>
+                <span>提交历史</span>
+              </button>
+            </nav>
+
+            <div class="repo-content">
+              <section class="changes-view" id="changesView">
+                <div class="changes-toolbar">
+                  <div>
+                    <span class="eyebrow">工作区</span>
+                    <h3>改动与提交</h3>
+                  </div>
+                  <div class="changes-toolbar-actions">
+                    <button class="text-button" type="button" data-repo-action="unstageAll">
+                      <svg class="icon"><use href="#i-minus"></use></svg>
+                      全部取消暂存
+                    </button>
+                    <button class="text-button" type="button" data-repo-action="stageAll">
+                      <svg class="icon"><use href="#i-plus"></use></svg>
+                      全部暂存
+                    </button>
+                  </div>
+                </div>
+
+                <div class="changes-layout">
+                  <aside class="file-explorer-pane">
+                    <div class="file-explorer-heading">
+                      <div>
+                        <span class="eyebrow">变更文件</span>
+                        <h3 id="fileTreeTitle">目录树</h3>
+                      </div>
+                      <div class="file-explorer-tools">
+                        <button
+                          class="file-view-toggle"
+                          id="fileViewToggle"
+                          type="button"
+                          data-action="toggle-file-view"
+                          aria-label="切换为平铺视图"
+                          title="切换为平铺视图"
+                        >
+                          <svg class="icon"><use href="#i-folder"></use></svg>
+                          <span>文件夹</span>
+                        </button>
+                        <span class="explorer-count" id="explorerCount">0</span>
+                      </div>
+                    </div>
+                    <div class="file-filter-bar" id="fileFilterBar">
+                      <button type="button" class="active" data-file-filter="all">全部</button>
+                      <button type="button" data-file-filter="unstaged">未暂存</button>
+                      <button type="button" data-file-filter="staged">已暂存</button>
+                      <button type="button" data-file-filter="untracked">未跟踪</button>
+                    </div>
+                    <div class="batch-selection-bar">
+                      <button type="button" data-file-select-all>全选当前</button>
+                      <span id="batchSelectionCount">已选 0</span>
+                      <span class="batch-selection-actions">
+                        <button type="button" class="batch-stage-button" id="batchStageButton" data-batch-stage disabled>
+                          暂存选中
+                        </button>
+                        <button type="button" class="batch-discard-button" id="batchDiscardButton" data-batch-discard disabled>
+                          <svg class="icon"><use href="#i-undo"></use></svg>
+                          还原选中
+                        </button>
+                      </span>
+                    </div>
+                    <div class="file-tree" id="fileGroups"></div>
+                  </aside>
+
+                  <div
+                    class="column-resizer file-tree-resizer"
+                    data-resizer="filetree"
+                    role="separator"
+                    aria-label="调整目录树宽度"
+                    aria-orientation="vertical"
+                    aria-valuemin="180"
+                    aria-valuemax="520"
+                    tabindex="0"
+                  ></div>
+
+                  <section class="file-preview-pane">
+                    <header class="file-preview-header">
+                      <div class="file-preview-identity">
+                        <span class="eyebrow">文件预览</span>
+                        <strong id="previewPath">选择一个文件</strong>
+                      </div>
+                      <div class="preview-mode-tabs" role="tablist" aria-label="文件预览模式">
+                        <button type="button" class="active" data-preview-mode="diff">差异</button>
+                        <button type="button" data-preview-mode="edit">编辑</button>
+                      </div>
+                    </header>
+                    <div class="preview-action-bar" id="previewActions"></div>
+                    <div class="file-preview" id="filePreview">
+                      <div class="preview-placeholder">
+                        <svg class="icon"><use href="#i-eye"></use></svg>
+                        <strong>点击左侧文件查看差异</strong>
+                        <span>也可以切换到编辑模式直接修改并保存。</span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                <section class="commit-composer commit-dock">
+                  <div class="commit-dock-heading">
+                    <div class="composer-heading">
+                      <div>
+                        <span class="eyebrow">提交</span>
+                        <h3>创建提交</h3>
+                      </div>
+                      <span class="staged-badge" id="stagedBadge">0 个已暂存</span>
+                    </div>
+                  </div>
+                  <div class="commit-dock-fields">
+                    <label class="commit-input-label" for="commitMessage">
+                      提交说明
+                    </label>
+                    <textarea
+                      id="commitMessage"
+                      rows="5"
+                      placeholder="简要说明这次改动"
+                      spellcheck="false"
+                    ></textarea>
+                    <div class="composer-options">
+                      <label class="check-label">
+                        <input type="checkbox" id="amendCheckbox" />
+                        <span>修正上一次提交</span>
+                      </label>
+                      <span class="shortcut-hint">Ctrl Enter</span>
+                    </div>
+                  </div>
+                  <div class="commit-dock-action">
+                    <button class="button button-primary commit-button" type="button" data-action="commit">
+                      <svg class="icon"><use href="#i-commit"></use></svg>
+                      <span>提交到本地</span>
+                    </button>
+                    <p class="composer-note" id="composerNote"></p>
+                  </div>
+                </section>
+              </section>
+
+              <section class="history-view" id="historyView" hidden>
+                <div class="history-toolbar">
+                  <div>
+                    <span class="eyebrow">当前分支</span>
+                    <h3>提交历史</h3>
+                  </div>
+                  <span class="history-count" id="historyCount"></span>
+                </div>
+                <div class="commit-timeline" id="commitTimeline"></div>
+              </section>
+            </div>
+          </section>
+        </main>
+
+        <div
+          class="column-resizer workspace-resizer"
+          data-resizer="context"
+          role="separator"
+          aria-label="调整分支面板宽度"
+          aria-orientation="vertical"
+          aria-valuemin="250"
+          aria-valuemax="520"
+          tabindex="0"
+        ></div>
+
+        <aside class="context-panel" id="contextPanel" aria-label="分支与提交历史">
+          <nav class="context-view-tabs" role="tablist" aria-label="右侧面板视图">
+            <button type="button" class="active" data-context-view="history" role="tab" aria-selected="true">
+              提交历史
+            </button>
+            <button type="button" data-context-view="branches" role="tab" aria-selected="false">
+              分支
+            </button>
+          </nav>
+
+          <section class="context-section context-history-section" id="contextHistorySection">
+            <div class="context-heading">
+              <div>
+                <span class="eyebrow" id="contextHistoryBranch">当前分支</span>
+                <h2>提交历史</h2>
+              </div>
+              <span class="history-count" id="contextCommitCount"></span>
+            </div>
+            <div class="context-history-scope" role="group" aria-label="提交历史范围">
+              <button type="button" data-history-scope="current">当前分支</button>
+              <button type="button" class="active" data-history-scope="all">所有分支</button>
+            </div>
+            <div class="context-commit-list" id="contextCommitHistory"></div>
+          </section>
+
+          <section class="context-section branch-section" id="branchContextSection" hidden>
+            <div class="context-heading">
+              <div>
+                <span class="eyebrow">引用</span>
+                <h2>分支</h2>
+              </div>
+              <button
+                class="icon-button"
+                type="button"
+                data-action="new-branch"
+                aria-label="新建分支"
+                data-tooltip="新建分支"
+              >
+                <svg class="icon"><use href="#i-plus"></use></svg>
+              </button>
+            </div>
+            <label class="branch-search-field">
+              <svg class="icon"><use href="#i-search"></use></svg>
+              <input
+                id="branchSearch"
+                type="search"
+                placeholder="搜索分支名或作者"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <div class="branch-selection-bar">
+              <button type="button" data-branch-select-all disabled>全选可删</button>
+              <span id="branchSelectionCount">已选 0</span>
+              <button type="button" id="branchBatchDeleteButton" data-branch-batch-delete disabled>
+                批量删除
+              </button>
+            </div>
+            <div class="branch-list" id="branchList"></div>
+          </section>
+
+          <section class="context-section stash-section">
+            <div class="context-heading">
+              <div>
+                <span class="eyebrow">临时保存</span>
+                <h2>Stash</h2>
+              </div>
+              <button
+                class="icon-button"
+                type="button"
+                data-action="stash-save"
+                aria-label="暂存当前改动到 Stash"
+                data-tooltip="保存当前改动"
+              >
+                <svg class="icon"><use href="#i-layers"></use></svg>
+              </button>
+            </div>
+            <div class="stash-list" id="stashList"></div>
+          </section>
+
+          <section class="context-section repo-meta-section">
+            <div class="context-heading">
+              <div>
+                <span class="eyebrow">仓库详情</span>
+                <h2>远端</h2>
+              </div>
+            </div>
+            <div class="remote-list" id="remoteList"></div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <div class="context-menu" id="contextMenu" hidden></div>
+
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <div
+        class="modal-panel"
+        id="modalPanel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modalTitle"
+      >
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow" id="modalEyebrow"></span>
+            <h2 id="modalTitle"></h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-action="close-modal"
+            aria-label="关闭"
+          >
+            <svg class="icon"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-footer" id="modalFooter"></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop directory-backdrop" id="directoryPickerBackdrop" hidden>
+      <div
+        class="modal-panel directory-picker-panel"
+        id="directoryPickerPanel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="directoryPickerTitle"
+      >
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">浏览本机</span>
+            <h2 id="directoryPickerTitle">选择目录</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-directory-action="close"
+            aria-label="关闭目录选择器"
+          >
+            <svg class="icon"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+        <div class="modal-body directory-picker-body" id="directoryPickerBody"></div>
+        <div class="modal-footer directory-picker-footer" id="directoryPickerFooter"></div>
+      </div>
+    </div>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    <div class="screen-reader-status" id="screenReaderStatus" aria-live="polite"></div>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

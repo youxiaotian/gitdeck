@@ -1,0 +1,14 @@
+{
+  "name": "gitdeck",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本地多仓库 Git 工作台，交互习惯参考 TortoiseGit。",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "check:docs": "node tools/check-docs.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
