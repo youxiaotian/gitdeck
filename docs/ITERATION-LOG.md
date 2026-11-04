@@ -14,6 +14,13 @@
 - 已知限制：
 ```
 
+## 2026-11-04 - 分支列表按提交时间倒序
+
+- 目标：分支面板原按名称字母序返回，时间列看起来乱序；改为最新提交的分支排在最前。
+- 改动：`src/git-summary.js` 仓库详情的 `git branch` 命令增加 `--sort=-committerdate`。
+- 数据/API 影响：无（`detail.branches` 数组顺序变为时间倒序）。
+- 验证：临时多分支仓库对比实测（默认字母序 vs 时间倒序）；`node --test tests/project-files.test.js tests/git-utils.test.js` 全部通过，含新增的排序断言。
+
 ## 2026-11-04 - 应用图标与开始菜单/桌面快捷方式
 
 - 目标：让 GitDeck 像应用一样可快捷启动、可固定任务栏，并有高辨识度专属图标。

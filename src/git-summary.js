@@ -71,6 +71,7 @@ async function getRepositoryDetail(repository) {
       ]).catch((error) => ({ stdout: "", stderr: error.message })),
       runGit(repository.path, [
         "branch",
+        "--sort=-committerdate",
         "--format=%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(committerdate:iso-strict)%00%(authorname)"
       ]).catch(() => ({ stdout: "" })),
       runGit(repository.path, [

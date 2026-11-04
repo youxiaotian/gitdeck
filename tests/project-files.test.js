@@ -35,3 +35,15 @@ test("仓库工具栏保留 TortoiseGit 外部打开入口", async () => {
   assert.match(shell, /TortoiseGitProc\.exe/);
   assert.match(shell, /\/command:log/);
 });
+
+test("分支列表按提交时间倒序返回", async () => {
+  const summary = await fs.readFile(
+    path.join(ROOT, "src", "git-summary.js"),
+    "utf8"
+  );
+  assert.match(
+    summary,
+    /"branch",\s*\n\s*"--sort=-committerdate"/,
+    "git branch 命令必须带 --sort=-committerdate，保证分支面板最新分支排在最前"
+  );
+});
