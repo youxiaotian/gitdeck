@@ -181,11 +181,15 @@
 
 - 单仓库抓取、快进拉取、推送。
 - 多选仓库后批量抓取、拉取、推送。
+- 服务端定时后台 fetch（默认 5 分钟，`GITDECK_AUTO_FETCH_MS` 可调、`GITDECK_AUTO_FETCH=0` 关闭）：
+  自动对有远端的仓库执行 `git fetch --all`（不含 prune），保持 `origin/*` 快照最新；
+  跳过正被用户动作占用的仓库，失败静默不弹错。
 
 **实现位置**
 
 - 动作：`fetch`、`pull`、`push`
 - 拉取固定使用 `git pull --ff-only`
+- 定时抓取：`src/auto-fetch.js`（`startAutoFetch()`，server.js 监听后启动）
 - 前端：`requestRepoAction()`、`requestBulkAction()`、`executeBulkAction()`
 
 ## TortoiseGit 外部界面

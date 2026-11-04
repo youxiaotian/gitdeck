@@ -20,6 +20,13 @@ const HOST = "127.0.0.1";
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
 
+// 定时后台 fetch 间隔；0 或 GITDECK_AUTO_FETCH=0 关闭。
+const AUTO_FETCH_INTERVAL_MS =
+  process.env.GITDECK_AUTO_FETCH === "0"
+    ? 0
+    : Number(process.env.GITDECK_AUTO_FETCH_MS) || 5 * 60 * 1000;
+const AUTO_FETCH_CONCURRENCY = 3;
+
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -40,5 +47,7 @@ module.exports = {
   HOST,
   MAX_BODY_BYTES,
   MAX_DIFF_BYTES,
+  AUTO_FETCH_INTERVAL_MS,
+  AUTO_FETCH_CONCURRENCY,
   MIME_TYPES
 };

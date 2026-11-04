@@ -23,6 +23,7 @@
 | 远端解析 | `src/git-summary.js` | `getRemotes()`、`resolveRemoteTarget()` |
 | 仓库可用性断言 | `src/git-summary.js` | `assertRepositoryAvailable()` |
 | 动作白名单分发 | `src/git-actions.js` | `runRepositoryAction()` |
+| 定时后台 fetch | `src/auto-fetch.js` | `startAutoFetch()`、`fetchAllRepositories()` |
 | 暂存/取消暂存 | `src/git-actions.js` | `stagePaths()`、`unstageAll()`、`unstagePath()` |
 | 提交（全部已暂存） | `src/git-actions.js` | `commit()` |
 | 选中文件提交 | `src/git-actions.js` | `commitSelected()`、`normalizePaths()` |

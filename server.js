@@ -12,6 +12,7 @@ const { handleApi } = require("./src/routes");
 const { sendError } = require("./src/http");
 const { serveStatic } = require("./src/static");
 const desktop = require("./src/desktop");
+const { startAutoFetch, stopAutoFetch } = require("./src/auto-fetch");
 
 const IS_DESKTOP = process.env.GITDECK_DESKTOP === "1";
 
@@ -83,7 +84,11 @@ async function main() {
         windowsHide: true
       }).unref();
     }
+
+    startAutoFetch();
   });
+
+  server.on("close", stopAutoFetch);
 }
 
 main().catch((error) => {

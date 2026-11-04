@@ -14,6 +14,13 @@
 - 已知限制：
 ```
 
+## 2026-11-04 - 服务端定时后台 fetch
+
+- 新增 `src/auto-fetch.js`：服务启动后每 5 分钟（`GITDECK_AUTO_FETCH_MS` 可调，`GITDECK_AUTO_FETCH=0` 关闭）对有远端的仓库静默执行 `git fetch --all`。
+- 目的与 VSCode `git.autofetch` 一致：让 `origin/*` 远程跟踪分支自动保持最新，右侧"所有分支"历史和领先/落后数字无需手动 fetch 即可反映远端进度。
+- 并发限制 3，跳过正被用户动作占用的仓库；失败静默（离线/无凭据不影响使用）；不带 `--prune`，自动修剪远端快照过于激进，手动 fetch 按钮保持 prune 行为。
+- 验证：本地裸仓库 + clone 端到端测试，远端新提交后在无人工操作下 clone 的 `origin/main` 自动追平。
+
 ## 2026-11-04 - 提交历史改为 TortoiseGit 风格 SVG 泳道图
 
 - 目标：原 `git log --graph` ASCII 字符直接排版导致图线错位、观感差；改为 TortoiseGit 风格的彩色泳道图。
