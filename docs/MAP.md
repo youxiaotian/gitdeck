@@ -19,7 +19,7 @@
 | 仓库 id 解析 | `src/workspace.js` | `getRepository()` |
 | 状态摘要 | `src/git-summary.js` | `getStatusSummary()` |
 | 仓库详情（50 提交+分支+stash+远端） | `src/git-summary.js` | `getRepositoryDetail()` |
-| 提交历史图线 | `src/git-summary.js` | `getCommitHistory()` |
+| 提交历史（结构化行，含父提交） | `src/git-summary.js` | `getCommitHistory()` |
 | 远端解析 | `src/git-summary.js` | `getRemotes()`、`resolveRemoteTarget()` |
 | 仓库可用性断言 | `src/git-summary.js` | `assertRepositoryAvailable()` |
 | 动作白名单分发 | `src/git-actions.js` | `runRepositoryAction()` |
@@ -43,7 +43,7 @@
 | 资源管理器/终端/TortoiseGit | `src/shell.js` | `openExplorer()`、`openTerminal()`、`openTortoiseGit()` |
 | 桌面壳：app 窗口与单实例 | `src/desktop.js` | `launchAppWindow()`、`probeInstance()`、`startHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`、`findBrowser()` |
 | JSON 存储与迁移 | `src/repository-store.js` | `RepositoryStore.loadState()`、`saveState()`、`normalizeOrder()`、`sortRepositories()` |
-| porcelain/log/branch 解析 | `src/git-utils.js` | `parseStatus()`、`parseLog()`、`parseBranches()`、`parseStashes()`、`parseGraphHistory()`、`isPathInside()` |
+| porcelain/log/branch/stash 解析 | `src/git-utils.js` | `parseStatus()`、`parseLog()`、`parseBranches()`、`parseStashes()`、`parseCommitHistory()`、`isPathInside()` |
 
 ## 前端（public/app.js，单 IIFE）
 

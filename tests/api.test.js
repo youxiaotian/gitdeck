@@ -399,8 +399,9 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     `/api/repositories/${repository.id}/history?scope=current&limit=20`
   );
   assert.equal(commitHistory.scope, "current");
-  assert.ok(commitHistory.rows.some((row) => row.type === "commit"));
-  assert.ok(commitHistory.maxGraphWidth > 0);
+  assert.ok(commitHistory.rows.length > 0);
+  assert.ok(commitHistory.rows.every((row) => row.hash && row.shortHash));
+  assert.ok(commitHistory.rows[0].parents !== undefined);
 
   await fs.writeFile(
     path.join(repositoryPath, "batch-a.txt"),

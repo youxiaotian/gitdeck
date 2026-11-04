@@ -146,17 +146,19 @@
 - 右侧面板默认显示当前仓库提交历史。
 - 可在“提交历史”和“分支”之间切换。
 - 提交历史可切换“当前分支”和“所有分支”。
-- 所有分支模式显示多色轨道、连接线、分支/远端/标签徽标。
+- 图线为 TortoiseGit 风格 SVG 泳道图：彩色泳道竖线、提交圆点、合并弧线；泳道按拓扑序自动分配与压缩。
+- 所有分支模式显示分支/远端/标签徽标。
 - 提交历史显示主题、短哈希、作者和相对时间。
 - Stash 与远端信息始终保留在下方。
 
 **实现位置**
 
 - 状态：`contextView`、`contextHistoryScope`、`contextHistory`
-- 接口：`GET /api/repositories/:id/history`
-- 服务端：`getCommitHistory()`、`parseGraphHistory()`
+- 接口：`GET /api/repositories/:id/history`（返回 `hash` + `parents`，不再返回 ASCII 图线）
+- 服务端：`getCommitHistory()`、`parseCommitHistory()`
 - 前端：`ensureContextHistory()`、`renderContextHistory()`、
-  `renderHistoryGraph()`、`renderHistoryDecorations()`
+  `buildHistoryGraph()`（泳道分配）、`historyGraphSvg()`（SVG 绘制）、
+  `renderHistoryDecorations()`
 - DOM：`#contextHistorySection`、`#branchContextSection`、
   `#contextCommitHistory`、`[data-context-view]`
 

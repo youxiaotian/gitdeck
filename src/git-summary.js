@@ -7,7 +7,7 @@
 const fs = require("node:fs/promises");
 const {
   parseBranches,
-  parseGraphHistory,
+  parseCommitHistory,
   parseLog,
   parseStashes,
   parseStatus
@@ -146,11 +146,10 @@ async function getCommitHistory(repository, scopeInput, limitInput) {
   try {
     result = await runGit(repository.path, [
       "log",
-      "--graph",
       "--decorate=short",
       "--date=iso-strict",
       "--topo-order",
-      "--pretty=format:%x1e%h%x1f%an%x1f%aI%x1f%D%x1f%s",
+      "--pretty=format:%x1e%H%x1f%P%x1f%h%x1f%an%x1f%aI%x1f%D%x1f%s",
       ...scopeArgs,
       "-n",
       String(limit)
@@ -164,8 +163,7 @@ async function getCommitHistory(repository, scopeInput, limitInput) {
       return {
         scope,
         branch,
-        rows: [],
-        maxGraphWidth: 0
+        rows: []
       };
     }
     throw error;
@@ -174,7 +172,7 @@ async function getCommitHistory(repository, scopeInput, limitInput) {
   return {
     scope,
     branch,
-    ...parseGraphHistory(result.stdout)
+    rows: parseCommitHistory(result.stdout)
   };
 }
 

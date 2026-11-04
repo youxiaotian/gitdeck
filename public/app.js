@@ -2114,30 +2114,20 @@
     }
 
     const rows = history?.rows || [];
-    const commitCount = rows.filter((row) => row.type === "commit").length;
-    elements.contextCommitCount.textContent = `${commitCount} 条`;
-    if (!commitCount) {
+    elements.contextCommitCount.textContent = `${rows.length} 条`;
+    if (!rows.length) {
       elements.contextCommitHistory.innerHTML =
         contextPlaceholder("没有提交历史");
       return;
     }
 
-    const graphWidth = Math.max(
-      4,
-      Math.min(Number(history.maxGraphWidth) || 4, 30)
-    );
+    const { lanes, maxLanes } = buildHistoryGraph(rows);
+    const graphWidth = Math.max(2, Math.min(maxLanes, 8)) * 13 + 14;
     elements.contextCommitHistory.innerHTML = rows
-      .map((row) => {
-        const graph = renderHistoryGraph(row.graph || "");
-        if (row.type === "connector") {
-          return `
-            <div class="context-history-connector" style="--history-graph-width:${graphWidth}ch">
-              <span class="context-history-graph">${graph}</span>
-            </div>
-          `;
-        }
+      .map((row, index) => {
+        const graph = historyGraphSvg(lanes[index], maxLanes);
         return `
-          <article class="context-history-row" style="--history-graph-width:${graphWidth}ch">
+          <article class="context-history-row" style="--history-graph-width:${graphWidth}px">
             <span class="context-history-graph">${graph}</span>
             <div class="context-history-content">
               <div class="context-history-subject">
@@ -2160,18 +2150,159 @@
       .join("");
   }
 
-  function renderHistoryGraph(graph) {
-    return [...String(graph || "")]
-      .map((character, index) => {
-        if (character === " ") {
-          return " ";
+  // 泳道图：TortoiseGit 风格。按拓扑序逐行分配泳道，用 SVG 画
+  // 彩色竖线、提交圆点和合并弧线。
+  const GRAPH_LANE_WIDTH = 13;
+  const GRAPH_ROW_HEIGHT = 30;
+  const GRAPH_DOT_RADIUS = 4.5;
+  const GRAPH_PALETTE = [
+    "#2f9e44",
+    "#d34d4d",
+    "#2f78ad",
+    "#c58a1a",
+    "#8a5ab5",
+    "#2f9ea1",
+    "#c24594",
+    "#64748b"
+  ];
+
+  function buildHistoryGraph(rows) {
+    const tails = []; // tails[i]：第 i 条泳道期待的下一个提交哈希
+    const laneColors = []; // 每条泳道的调色板索引，随泳道压缩一起位移
+    let colorCursor = 0;
+    let maxLanes = 1;
+    const paletteOf = (colorIndex) =>
+      GRAPH_PALETTE[colorIndex % GRAPH_PALETTE.length];
+
+    const lanes = rows.map((row) => {
+      const upper = []; // 上半段线段 {x1, x2, color, curve}
+      const lower = []; // 下半段线段
+      const startCount = tails.length;
+      const startColors = laneColors.slice();
+
+      const matches = [];
+      for (let i = 0; i < startCount; i += 1) {
+        if (tails[i] === row.hash) {
+          matches.push(i);
         }
-        const lane = index % 6;
-        return `<span class="graph-char lane-${lane}">${escapeHtml(
-          character
-        )}</span>`;
-      })
-      .join("");
+      }
+
+      let dotLane;
+      let dotColorIndex;
+      if (matches.length) {
+        dotLane = matches[0];
+        dotColorIndex = startColors[dotLane];
+        // 同哈希的多余泳道在上半段以弧线汇入提交点
+        for (let i = matches.length - 1; i >= 1; i -= 1) {
+          upper.push({
+            x1: matches[i],
+            x2: dotLane,
+            color: paletteOf(startColors[matches[i]]),
+            curve: true
+          });
+        }
+        for (let i = matches.length - 1; i >= 0; i -= 1) {
+          tails.splice(matches[i], 1);
+          laneColors.splice(matches[i], 1);
+        }
+      } else {
+        dotLane = tails.length;
+        dotColorIndex = colorCursor;
+        laneColors.push(colorCursor);
+        colorCursor += 1;
+      }
+      const dotColor = paletteOf(dotColorIndex);
+
+      // 上半段：穿过本行的泳道保持原位
+      for (let j = 0; j < startCount; j += 1) {
+        if (matches.includes(j)) {
+          continue;
+        }
+        upper.push({ x1: j, x2: j, color: paletteOf(startColors[j]) });
+      }
+      upper.push({ x1: dotLane, x2: dotLane, color: dotColor });
+
+      // 下半段：泳道压缩位移（被消费的泳道右侧整体左移一格）
+      let removed = 0;
+      for (let j = 0; j < startCount; j += 1) {
+        if (matches.includes(j)) {
+          removed += 1;
+          continue;
+        }
+        lower.push({
+          x1: j,
+          x2: j - removed,
+          color: paletteOf(startColors[j]),
+          curve: j !== j - removed
+        });
+      }
+
+      const parents = row.parents || [];
+      if (parents.length) {
+        // 第一个父提交延续当前泳道
+        tails.splice(dotLane, 0, parents[0]);
+        laneColors.splice(dotLane, 0, dotColorIndex);
+        lower.push({ x1: dotLane, x2: dotLane, color: dotColor });
+        for (let k = 1; k < parents.length; k += 1) {
+          const existing = tails.indexOf(parents[k]);
+          if (existing >= 0) {
+            lower.push({
+              x1: dotLane,
+              x2: existing,
+              color: paletteOf(laneColors[existing]),
+              curve: true
+            });
+          } else {
+            tails.push(parents[k]);
+            laneColors.push(colorCursor);
+            lower.push({
+              x1: dotLane,
+              x2: tails.length - 1,
+              color: paletteOf(colorCursor),
+              curve: true
+            });
+            colorCursor += 1;
+          }
+        }
+      }
+      // 根提交（无父提交）：泳道在圆点终止，不画下半段
+
+      maxLanes = Math.max(maxLanes, dotLane + 1, tails.length);
+      return { upper, lower, dotLane, dotColor };
+    });
+
+    return { lanes, maxLanes };
+  }
+
+  function historyGraphSvg(lane, maxLanes) {
+    const laneCount = Math.max(maxLanes, 1);
+    const width = laneCount * GRAPH_LANE_WIDTH + 14;
+    const mid = GRAPH_ROW_HEIGHT / 2;
+    const x = (value) => value * GRAPH_LANE_WIDTH + 8.5;
+    const parts = [];
+    const pathFor = (segment, y1, y2) => {
+      const x1 = x(segment.x1);
+      const x2 = x(segment.x2);
+      if (segment.x1 === segment.x2) {
+        return `M ${x1} ${y1} L ${x1} ${y2}`;
+      }
+      const curveMidY = (y1 + y2) / 2;
+      return `M ${x1} ${y1} C ${x1} ${curveMidY}, ${x2} ${curveMidY}, ${x2} ${y2}`;
+    };
+    for (const segment of lane.upper) {
+      parts.push(
+        `<path d="${pathFor(segment, 0, mid)}" stroke="${segment.color}"/>`
+      );
+    }
+    for (const segment of lane.lower) {
+      parts.push(
+        `<path d="${pathFor(segment, mid, GRAPH_ROW_HEIGHT)}" stroke="${segment.color}"/>`
+      );
+    }
+    parts.push(
+      `<circle cx="${x(lane.dotLane)}" cy="${mid}" r="${GRAPH_DOT_RADIUS}" fill="${lane.dotColor}"/>`
+    );
+    return `<svg class="history-graph-svg" style="width:${width}px" viewBox="0 0 ${width} ${GRAPH_ROW_HEIGHT}" preserveAspectRatio="none" aria-hidden="true">${parts.join("")}</svg>`;
   }
 
   function renderHistoryDecorations(rawDecorations) {

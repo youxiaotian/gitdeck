@@ -2769,50 +2769,36 @@ body.is-resizing * {
 
 .context-history-row,
 .context-history-connector {
-  grid-template-columns: min(var(--history-graph-width, 8ch), 96px) minmax(0, 1fr);
-  gap: 5px;
+  grid-template-columns: minmax(26px, var(--history-graph-width, 56px)) minmax(0, 1fr);
+  gap: 6px;
 }
 
 .context-history-row {
   display: grid;
-  align-items: start;
+  align-items: stretch;
   padding: 5px 0;
-}
-
-.context-history-connector {
-  display: grid;
-  min-height: 14px;
-  align-items: start;
 }
 
 .context-history-graph {
   overflow: hidden;
-  color: #3c9d71;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.25;
-  white-space: pre;
+  align-self: stretch;
+  min-height: 30px;
 }
 
-.graph-char.lane-1 {
-  color: #d34d4d;
+.history-graph-svg {
+  display: block;
+  height: 100%;
 }
 
-.graph-char.lane-2 {
-  color: #2f78ad;
+.history-graph-svg path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 
-.graph-char.lane-3 {
-  color: #c58a1a;
-}
-
-.graph-char.lane-4 {
-  color: #8a5ab5;
-}
-
-.graph-char.lane-5 {
-  color: #2f9ea1;
+.history-graph-svg circle {
+  stroke: var(--panel-raised, #fff);
+  stroke-width: 1.5;
 }
 
 .context-history-content {

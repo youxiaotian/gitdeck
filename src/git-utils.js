@@ -165,40 +165,20 @@ function parseLog(output) {
   }));
 }
 
-function parseGraphHistory(output) {
-  const rows = [];
-  let maxGraphWidth = 0;
-
-  for (const line of String(output || "").split(/\r?\n/)) {
-    if (!line) {
-      continue;
-    }
-    const separatorIndex = line.indexOf("\x1e");
-    if (separatorIndex < 0) {
-      const graph = line.replace(/\s+$/, "");
-      if (!graph) {
-        continue;
-      }
-      maxGraphWidth = Math.max(maxGraphWidth, graph.length);
-      rows.push({ type: "connector", graph });
-      continue;
-    }
-
-    const graph = line.slice(0, separatorIndex);
-    const fields = line.slice(separatorIndex + 1).split("\x1f");
-    maxGraphWidth = Math.max(maxGraphWidth, graph.length);
-    rows.push({
-      type: "commit",
-      graph,
-      shortHash: fields[0] || "",
-      author: fields[1] || "",
-      date: fields[2] || "",
-      decorations: fields[3] || "",
-      subject: fields[4] || ""
-    });
-  }
-
-  return { rows, maxGraphWidth };
+function parseCommitHistory(output) {
+  return parseRecordList(output, 7)
+    .map((item) => ({
+      hash: item.field0,
+      parents: String(item.field1 || "")
+        .split(" ")
+        .filter(Boolean),
+      shortHash: item.field2,
+      author: item.field3,
+      date: item.field4,
+      decorations: item.field5,
+      subject: item.field6
+    }))
+    .filter((row) => row.hash);
 }
 
 function parseBranches(output) {
@@ -243,7 +223,7 @@ module.exports = {
   isPathInside,
   normalizeSqlPath,
   parseBranches,
-  parseGraphHistory,
+  parseCommitHistory,
   parseLog,
   parseStashes,
   parseStatus

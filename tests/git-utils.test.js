@@ -6,7 +6,7 @@ const test = require("node:test");
 const {
   isPathInside,
   parseBranches,
-  parseGraphHistory,
+  parseCommitHistory,
   parseLog,
   parseStatus
 } = require("../src/git-utils");
@@ -72,22 +72,22 @@ test("parseLog 和 parseBranches 能正确拆分字段与记录分隔符", () =>
   assert.equal(branches[1].author, "Bob");
 });
 
-test("parseGraphHistory 能保留多分支图线和提交信息", () => {
+test("parseCommitHistory 能解析哈希、父提交与提交信息", () => {
   const output = [
-    "* \x1ea1b2c3\x1fAlice\x1f2026-11-03T10:00:00+08:00\x1fHEAD -> main, origin/main\x1f最新提交",
-    "| * \x1ed4e5f6\x1fBob\x1f2026-11-02T09:00:00+08:00\x1ffeature/demo\x1f功能提交",
-    "|/"
-  ].join("\n");
+    "50992969\x1f84d0f1e9 a400ba86\x1f5099296\x1fAlice\x1f2026-11-03T10:00:00+08:00\x1fHEAD -> main, origin/main\x1f最新提交",
+    "84d0f1e9\x1f\x1f84d0f1e\x1fBob\x1f2026-11-02T09:00:00+08:00\x1ffeature/demo\x1f功能提交"
+  ].join("\x1e");
 
-  const history = parseGraphHistory(output);
-  assert.equal(history.rows.length, 3);
-  assert.equal(history.rows[0].type, "commit");
-  assert.equal(history.rows[0].shortHash, "a1b2c3");
-  assert.equal(history.rows[0].author, "Alice");
-  assert.match(history.rows[0].decorations, /HEAD -> main/);
-  assert.equal(history.rows[1].graph, "| * ");
-  assert.equal(history.rows[2].type, "connector");
-  assert.equal(history.maxGraphWidth, 4);
+  const rows = parseCommitHistory(output);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].hash, "50992969");
+  assert.equal(rows[0].shortHash, "5099296");
+  assert.deepEqual(rows[0].parents, ["84d0f1e9", "a400ba86"]);
+  assert.equal(rows[0].author, "Alice");
+  assert.match(rows[0].decorations, /HEAD -> main/);
+  assert.equal(rows[0].subject, "最新提交");
+  assert.deepEqual(rows[1].parents, []);
+  assert.equal(rows[1].subject, "功能提交");
 });
 
 test("isPathInside 能拒绝路径逃逸并接受仓库内子路径", () => {

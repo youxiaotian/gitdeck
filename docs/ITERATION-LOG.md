@@ -14,6 +14,16 @@
 - 已知限制：
 ```
 
+## 2026-11-04 - 提交历史改为 TortoiseGit 风格 SVG 泳道图
+
+- 目标：原 `git log --graph` ASCII 字符直接排版导致图线错位、观感差；改为 TortoiseGit 风格的彩色泳道图。
+- 改动：
+  - 服务端 `getCommitHistory()` 去掉 `--graph`，`--pretty` 增加完整哈希 `%H` 与父提交 `%P`；`parseGraphHistory()` 重写为 `parseCommitHistory()`，返回结构化行（含 `parents`），不再返回 ASCII 图线与 `maxGraphWidth`；
+  - 前端新增 `buildHistoryGraph()` 泳道分配算法（拓扑序维护泳道数组，处理分支新建、合并汇入、同哈希多泳道、泳道压缩位移、根提交终止）与 `historyGraphSvg()` SVG 绘制（彩色竖线 + 贝塞尔合并弧线 + 描边圆点，8 色调色板）；
+  - 删除 `renderHistoryGraph()` ASCII 渲染、connector 行及对应 CSS（`graph-char` 等）。
+- 数据/API 影响：`/history` 行结构变化（`type`/`graph`/`maxGraphWidth` 移除，新增 `hash`/`parents`）。
+- 验证：构造多分支多合并演示仓库，无头 Chrome CDP 实测截图——泳道跨行连续对齐、合并弧线正确汇入、零 console error；`node --test` 通过（git-utils 断言更新为 parents 解析）。
+
 ## 2026-11-04 - 修复窗口每次打开过窄的问题
 
 - 目标：窗口每次打开都很窄，需要手动拖大才能看到右侧分支面板。
