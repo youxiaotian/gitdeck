@@ -112,12 +112,11 @@ class RepositoryStore {
     }
 
     const legacyWorkspaceId = repository.workspaceId;
-    if (
-      repository.workspaceIds?.join(",") !== memberships.join(",") ||
-      repository.workspaceId !== undefined
-    ) {
-      changed = true;
-    }
+    const previousMemberships = repository.workspaceIds;
+    const previousOrders =
+      repository.orders && typeof repository.orders === "object"
+        ? repository.orders
+        : {};
 
     const legacyOrders =
       typeof repository.order === "number" &&
@@ -126,14 +125,29 @@ class RepositoryStore {
         ? { [legacyWorkspaceId]: repository.order }
         : {};
 
-    const rawOrders =
-      repository.orders && typeof repository.orders === "object"
-        ? repository.orders
-        : {};
     const orders = {};
     for (const id of memberships) {
-      const value = Number(rawOrders[id] ?? legacyOrders[id]);
+      const value = Number(previousOrders[id] ?? legacyOrders[id]);
       orders[id] = Number.isFinite(value) ? value : 0;
+    }
+
+    // 变更检测要覆盖 orders 的脏键/非法值，否则 version 已等于 4 的脏数据
+    // 只会在内存里被清洗，磁盘文件仍保留残留归属的排序键。
+    const membershipChanged =
+      !Array.isArray(previousMemberships) ||
+      previousMemberships.length !== memberships.length ||
+      previousMemberships.some((id, index) => id !== memberships[index]);
+    const orderKeys = Object.keys(orders);
+    const orderChanged =
+      Object.keys(previousOrders).length !== orderKeys.length ||
+      orderKeys.some((id) => previousOrders[id] !== orders[id]);
+    if (
+      membershipChanged ||
+      orderChanged ||
+      legacyWorkspaceId !== undefined ||
+      repository.order !== undefined
+    ) {
+      changed = true;
     }
 
     repository.workspaceIds = memberships;

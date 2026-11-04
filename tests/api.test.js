@@ -141,6 +141,11 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
   );
   const orderRepository = orderRepositoryResponse.repository;
   const sharedWorkspaceId = repository.workspaceIds[0];
+  assert.equal(
+    orderRepository.orders[sharedWorkspaceId],
+    1,
+    "新建仓库应排在该工作区已有仓库之后"
+  );
   await callApi(baseUrl, token, "/api/repositories/reorder", {
     method: "POST",
     body: {
@@ -735,6 +740,21 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     "删除工作区后归属被摘除"
   );
   assert.ok(afterDelete.workspaceIds.length >= 1);
+  assert.equal(
+    workspaceDeleted.movedRepositoryCount,
+    0,
+    "仓库仍有其他归属时不应触发兜底搬迁"
+  );
+  const deletedUpdated = (workspaceDeleted.updated || []).find(
+    (item) => item.id === repository.id
+  );
+  assert.ok(deletedUpdated, "删除工作区应返回受影响仓库的归属与排序");
+  assert.deepEqual(deletedUpdated.workspaceIds, afterDelete.workspaceIds);
+  assert.deepEqual(deletedUpdated.orders, afterDelete.orders);
+  assert.ok(
+    Number.isFinite(deletedUpdated.orders[afterDelete.workspaceIds[0]]),
+    "摘除归属后剩余工作区的排序值必须有效"
+  );
 
   const removed = await callApi(
     baseUrl,
@@ -754,6 +774,48 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     finalBootstrap.repositories.some((item) => item.id === repository.id),
     false
   );
+});
+
+test("RepositoryStore 会清洗脏 orders 并写回磁盘", async () => {
+  const RepositoryStore = require("../src/repository-store");
+  const os = require("node:os");
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "gitdeck-store-")
+  );
+  try {
+    const store = new RepositoryStore(directory);
+    await store.saveState({
+      workspaces: [
+        { id: "ws-a", name: "A" },
+        { id: "ws-b", name: "B" }
+      ],
+      repositories: [
+        {
+          id: "aaa",
+          name: "a",
+          path: "C:/a",
+          workspaceIds: ["ws-a", "ws-b", "ws-ghost"],
+          orders: { "ws-a": 0, "ws-b": 0, "ws-ghost": 7 }
+        }
+      ]
+    });
+    const state = await store.loadState();
+    assert.deepEqual(state.repositories[0].workspaceIds, ["ws-a", "ws-b"]);
+    assert.deepEqual(state.repositories[0].orders, {
+      "ws-a": 0,
+      "ws-b": 0
+    });
+    const onDisk = JSON.parse(
+      await fs.readFile(path.join(directory, "repositories.json"), "utf8")
+    );
+    assert.deepEqual(
+      onDisk.repositories[0].orders,
+      { "ws-a": 0, "ws-b": 0 },
+      "清洗结果要落盘，不能只留在内存"
+    );
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 
 function runGit(cwd, args) {

@@ -3628,14 +3628,30 @@
         state.workspaces = state.workspaces.filter(
           (item) => item.id !== workspaceId
         );
+        // 以后端返回的归属/排序为准，避免前端重算时漏掉兜底工作区的 order。
+        const updatedById = new Map(
+          (result.updated || []).map((item) => [item.id, item])
+        );
         for (const repository of state.repositories) {
+          const updated = updatedById.get(repository.id);
+          if (updated) {
+            repository.workspaceIds = updated.workspaceIds;
+            repository.orders = updated.orders;
+            continue;
+          }
+          // 兼容尚未重启的旧服务端：本地重算并补齐兜底排序值。
           if (isRepoInWorkspace(repository, workspaceId)) {
             repository.workspaceIds = repository.workspaceIds.filter(
               (id) => id !== workspaceId
             );
-            delete repository.orders?.[workspaceId];
+            repository.orders = repository.orders || {};
+            delete repository.orders[workspaceId];
             if (!repository.workspaceIds.length) {
               repository.workspaceIds.push(result.workspaceId);
+              repository.orders[result.workspaceId] =
+                state.repositories.filter((item) =>
+                  isRepoInWorkspace(item, result.workspaceId)
+                ).length;
             }
           }
         }
@@ -4756,7 +4772,13 @@
         } else {
           render();
         }
-        showToast("仓库已移除", repository.name, "success");
+        showToast(
+          removedIds.has(repoId) ? "仓库已移除" : "已从当前工作区移出",
+          removedIds.has(repoId)
+            ? repository.name
+            : `${repository.name} 仍保留在其他工作区`,
+          "success"
+        );
       }
     });
   }
@@ -4767,7 +4789,13 @@
       !repository.workspaceIds.length
     ) {
       repository.workspaceIds = [state.activeWorkspaceId];
-      repository.orders = repository.orders || {};
+    }
+    repository.orders = repository.orders || {};
+    for (const id of repository.workspaceIds) {
+      const value = repository.orders[id];
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        repository.orders[id] = Number.MAX_SAFE_INTEGER;
+      }
     }
     const existingIndex = state.repositories.findIndex(
       (item) => item.id === repository.id

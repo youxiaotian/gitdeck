@@ -99,9 +99,14 @@
 {
   "removed": true,
   "workspaceId": "workspace-default",
-  "movedRepositoryCount": 4
+  "movedRepositoryCount": 4,
+  "updated": [
+    { "id": "368a329adeae", "workspaceIds": ["workspace-default"], "orders": { "workspace-default": 0 } }
+  ]
 }
 ```
+
+`workspaceId` 是失去全部归属时迁入的兜底工作区；`movedRepositoryCount` 是迁入兜底工作区的仓库数；`updated` 是所有被摘除归属的仓库的最新 `workspaceIds` 与 `orders`，前端据此同步，避免本地重算漏掉兜底排序值。
 
 ## 仓库接口
 

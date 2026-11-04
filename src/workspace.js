@@ -90,7 +90,9 @@ async function addRepository(inputPath, requestedWorkspaceId = "") {
     path: repositoryPath,
     workspaceIds: [workspace.id],
     addedAt: new Date().toISOString(),
-    orders: { [workspace.id]: 0 }
+    orders: {
+      [workspace.id]: nextOrderInWorkspace(state, workspace.id)
+    }
   };
 
   state.repositories.push(repository);
@@ -156,6 +158,7 @@ async function deleteWorkspace(workspaceId) {
   );
   let nextOrder = nextOrderInWorkspace(state, fallbackWorkspace.id);
   let movedRepositoryCount = 0;
+  const updated = [];
   for (const repository of state.repositories) {
     if (!isMember(repository, workspaceId)) {
       continue;
@@ -171,6 +174,11 @@ async function deleteWorkspace(workspaceId) {
       nextOrder += 1;
       movedRepositoryCount += 1;
     }
+    updated.push({
+      id: repository.id,
+      workspaceIds: repository.workspaceIds,
+      orders: repository.orders
+    });
   }
   state.workspaces = state.workspaces.filter(
     (item) => item.id !== workspaceId
@@ -179,7 +187,8 @@ async function deleteWorkspace(workspaceId) {
   return {
     removed: true,
     workspaceId: fallbackWorkspace.id,
-    movedRepositoryCount
+    movedRepositoryCount,
+    updated
   };
 }
 
