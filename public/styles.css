@@ -2828,10 +2828,10 @@ body.is-resizing * {
   max-width: 100%;
   align-items: center;
   padding: 1px 4px;
-  border: 1px solid #e0d1a9;
+  border: 1px solid #b3d8c5;
   border-radius: 3px;
-  background: #fff7df;
-  color: #8f6715;
+  background: var(--green-soft);
+  color: var(--green-deep);
   font-family: var(--mono);
   font-size: 7px;
   font-weight: 600;
@@ -2839,21 +2839,21 @@ body.is-resizing * {
 }
 
 .context-history-decoration.head {
-  border-color: #e4a4a4;
-  background: #fff0f0;
-  color: #b53030;
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
 }
 
 .context-history-decoration.remote {
-  border-color: #c8d8e6;
-  background: #eef5fa;
-  color: #336f9d;
+  border-color: #e0d1a9;
+  background: #fff7df;
+  color: #8f6715;
 }
 
 .context-history-decoration.tag {
-  border-color: #dbc48e;
-  background: #fff6dc;
-  color: #8e6411;
+  border-color: #d5c2e8;
+  background: #f5effb;
+  color: #6d3fa0;
 }
 
 .context-history-meta {
