@@ -11,8 +11,12 @@ const { spawn } = require("node:child_process");
 const { DATA_ROOT } = require("./config");
 
 const WINDOW_STATE_FILE = path.join(DATA_ROOT, "window.json");
-const DEFAULT_WIDTH = 1440;
-const DEFAULT_HEIGHT = 900;
+const DEFAULT_WIDTH = 1680;
+const DEFAULT_HEIGHT = 1000;
+// 下限收紧：避免历史存档的小尺寸（或 Chrome 忽略 --window-size 时上报的小窗口）
+// 让窗口每次都开得太窄。
+const MIN_WIDTH = 1200;
+const MIN_HEIGHT = 800;
 const HEARTBEAT_INTERVAL_MS = 5000;
 const HEARTBEAT_TIMEOUT_MS = 30000;
 
@@ -80,8 +84,8 @@ async function loadWindowSize() {
   try {
     const raw = await fs.readFile(WINDOW_STATE_FILE, "utf8");
     const data = JSON.parse(raw);
-    const width = Math.min(Math.max(Number(data.width) || DEFAULT_WIDTH, 640), 4096);
-    const height = Math.min(Math.max(Number(data.height) || DEFAULT_HEIGHT, 480), 2160);
+    const width = Math.min(Math.max(Number(data.width) || DEFAULT_WIDTH, MIN_WIDTH), 4096);
+    const height = Math.min(Math.max(Number(data.height) || DEFAULT_HEIGHT, MIN_HEIGHT), 2160);
     return { width, height };
   } catch {
     return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };

@@ -734,13 +734,46 @@
           } catch (e) {}
         }
         setInterval(function () { post("/api/heartbeat"); }, 5000);
+        // Chrome 在已有实例运行时会忽略 --window-size，所以加载后按存档尺寸
+        // 主动 resizeTo 恢复窗口大小。应用预设期间的 resize 事件不上报，
+        // 避免把存档尺寸覆盖成被忽略参数后的小窗口（也避免外框差值导致的逐次缩小）。
+        var applyingPreset = false;
         function reportSize() {
+          if (applyingPreset) {
+            return;
+          }
           post("/api/window", {
             width: window.innerWidth,
             height: window.innerHeight
           });
         }
-        window.addEventListener("load", reportSize);
+        function applySavedSize() {
+          fetch("/api/window", {
+            headers: { "X-GitDeck-Token": token }
+          })
+            .then(function (response) {
+              return response.ok ? response.json() : null;
+            })
+            .then(function (data) {
+              if (!data) return;
+              var width = Number(data.width) || 0;
+              var height = Number(data.height) || 0;
+              if (width < 400 || height < 400) return;
+              if (
+                Math.abs(window.innerWidth - width) < 40 &&
+                Math.abs(window.innerHeight - height) < 40
+              ) {
+                return;
+              }
+              applyingPreset = true;
+              try {
+                window.resizeTo(width, height);
+              } catch (e) {}
+              setTimeout(function () { applyingPreset = false; }, 800);
+            })
+            .catch(function () {});
+        }
+        window.addEventListener("load", applySavedSize);
         var resizeTimer;
         window.addEventListener("resize", function () {
           clearTimeout(resizeTimer);
