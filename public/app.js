@@ -240,7 +240,7 @@
     return (
       state.workspaces.find((workspace) =>
         state.repositories.some(
-          (repository) => repository.workspaceId === workspace.id
+          (repository) => isRepoInWorkspace(repository, workspace.id)
         )
       )?.id ||
       state.workspaces[0]?.id ||
@@ -248,10 +248,27 @@
     );
   }
 
+  function isRepoInWorkspace(repository, workspaceId) {
+    return Array.isArray(repository.workspaceIds)
+      ? repository.workspaceIds.includes(workspaceId)
+      : repository.workspaceId === workspaceId;
+  }
+
+  function workspaceSortValue(repository, workspaceId) {
+    const value = Number(repository.orders?.[workspaceId]);
+    return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+  }
+
   function getActiveRepositories() {
-    return state.repositories.filter(
-      (repository) => repository.workspaceId === state.activeWorkspaceId
-    );
+    return state.repositories
+      .filter((repository) =>
+        isRepoInWorkspace(repository, state.activeWorkspaceId)
+      )
+      .sort(
+        (left, right) =>
+          workspaceSortValue(left, state.activeWorkspaceId) -
+          workspaceSortValue(right, state.activeWorkspaceId)
+      );
   }
 
   function getActiveWorkspace() {
@@ -925,14 +942,18 @@
     }
     activeRepositories.splice(insertIndex, 0, moved);
 
-    const slots = [];
-    state.repositories.forEach((repository, index) => {
-      if (repository.workspaceId === state.activeWorkspaceId) {
-        slots.push(index);
-      }
-    });
-    slots.forEach((slot, index) => {
-      state.repositories[slot] = activeRepositories[index];
+    const members = state.repositories
+      .map((repository, index) => ({ repository, index }))
+      .filter(({ repository }) =>
+        isRepoInWorkspace(repository, state.activeWorkspaceId)
+      )
+      .sort(
+        (left, right) =>
+          workspaceSortValue(left.repository, state.activeWorkspaceId) -
+          workspaceSortValue(right.repository, state.activeWorkspaceId)
+      );
+    members.forEach(({ index }, position) => {
+      state.repositories[index] = activeRepositories[position];
     });
     renderRepoList();
 
@@ -956,7 +977,7 @@
       id: workspace.id,
       name: workspace.name,
       count: state.repositories.filter(
-        (repository) => repository.workspaceId === workspace.id
+        (repository) => isRepoInWorkspace(repository, workspace.id)
       ).length
     }));
     const activeWorkspace = getActiveWorkspace();
@@ -2621,10 +2642,10 @@
     }
 
     if (
-      repository.workspaceId &&
-      repository.workspaceId !== state.activeWorkspaceId
+      !isRepoInWorkspace(repository, state.activeWorkspaceId) &&
+      repository.workspaceIds?.length
     ) {
-      setActiveWorkspace(repository.workspaceId, {
+      setActiveWorkspace(repository.workspaceIds[0], {
         loadRepository: false
       });
     }
@@ -3452,7 +3473,7 @@
     const rows = state.workspaces
       .map((workspace) => {
         const count = state.repositories.filter(
-          (repository) => repository.workspaceId === workspace.id
+          (repository) => isRepoInWorkspace(repository, workspace.id)
         ).length;
         const active = workspace.id === state.activeWorkspaceId;
         return `
@@ -3589,14 +3610,14 @@
       return;
     }
     const count = state.repositories.filter(
-      (repository) => repository.workspaceId === workspaceId
+      (repository) => isRepoInWorkspace(repository, workspaceId)
     ).length;
     showConfirm({
       eyebrow: "删除工作区",
       title: `删除工作区 ${workspace.name}？`,
       message:
         count > 0
-          ? `工作区中的 <strong>${count}</strong> 个仓库不会被删除，会移动到其他工作区。`
+          ? `工作区中的 <strong>${count}</strong> 个仓库不会被删除，会保留在其他工作区或移动到兜底工作区。`
           : "这个工作区中没有仓库，可以直接删除。",
       confirmLabel: "删除工作区",
       danger: true,
@@ -3608,8 +3629,14 @@
           (item) => item.id !== workspaceId
         );
         for (const repository of state.repositories) {
-          if (repository.workspaceId === workspaceId) {
-            repository.workspaceId = result.workspaceId;
+          if (isRepoInWorkspace(repository, workspaceId)) {
+            repository.workspaceIds = repository.workspaceIds.filter(
+              (id) => id !== workspaceId
+            );
+            delete repository.orders?.[workspaceId];
+            if (!repository.workspaceIds.length) {
+              repository.workspaceIds.push(result.workspaceId);
+            }
           }
         }
         if (state.activeWorkspaceId === workspaceId) {
@@ -3645,7 +3672,9 @@
     }
     state.moveRepositoryId = repositoryId;
     const choices = state.workspaces
-      .filter((workspace) => workspace.id !== repository.workspaceId)
+      .filter(
+        (workspace) => !isRepoInWorkspace(repository, workspace.id)
+      )
       .map(
         (workspace) => `
           <button
@@ -3660,11 +3689,19 @@
         `
       )
       .join("");
+    if (!choices) {
+      showToast(
+        "已加入全部工作区",
+        `${repository.name} 已存在于所有工作区中。`,
+        "warning"
+      );
+      return;
+    }
     openModal({
-      eyebrow: "仓库归属",
-      title: `移动 ${repository.name}`,
+      eyebrow: "多工作区",
+      title: `把 ${repository.name} 加入工作区`,
       body: `
-        <p class="confirm-copy">选择要移动到的目标工作区。</p>
+        <p class="confirm-copy">仓库可以同时存在于多个工作区，选择要加入的目标。</p>
         <div class="workspace-move-list">${choices}</div>
       `,
       footer: `
@@ -3692,30 +3729,17 @@
           body: { workspaceId }
         }
       );
-      repository.workspaceId = result.repository.workspaceId;
+      repository.workspaceIds = result.repository.workspaceIds;
+      repository.orders = result.repository.orders;
       closeModal();
-      if (
-        state.selectedId === repositoryId &&
-        repository.workspaceId !== state.activeWorkspaceId
-      ) {
-        state.selectedId = null;
-        state.detail = null;
-        const next = getActiveRepositories()[0];
-        if (next) {
-          await selectRepository(next.id);
-        } else {
-          render();
-        }
-      } else {
-        render();
-      }
+      render();
       showToast(
-        "仓库已移动",
-        `${repository.name} → ${workspace.name}`,
+        "已加入工作区",
+        `${repository.name} → ${workspace.name}（保留原有归属）`,
         "success"
       );
     } catch (error) {
-      showToast("移动失败", error.message, "error");
+      showToast("加入失败", error.message, "error");
     }
   }
 
@@ -3803,6 +3827,15 @@
           }
         });
         const removedIds = new Set(result.removedIds);
+        for (const item of result.updated || []) {
+          const repository = state.repositories.find(
+            (entry) => entry.id === item.id
+          );
+          if (repository) {
+            repository.workspaceIds = item.workspaceIds;
+            repository.orders = item.orders;
+          }
+        }
         state.repositories = state.repositories.filter(
           (repository) => !removedIds.has(repository.id)
         );
@@ -3931,7 +3964,7 @@
       <div class="context-menu-separator"></div>
       ${
         state.workspaces.length > 1
-          ? `<button type="button" data-menu-action="move">${icon("layers")}移动到工作区</button>
+          ? `<button type="button" data-menu-action="move">${icon("layers")}加入其他工作区</button>
              <div class="context-menu-separator"></div>`
           : ""
       }
@@ -4687,15 +4720,31 @@
       confirmLabel: "从工作区移出",
       danger: true,
       onConfirm: async () => {
-        await api(`/api/repositories/${repoId}`, { method: "DELETE" });
-        state.repositories = state.repositories.filter(
-          (item) => item.id !== repoId
+        const result = await api("/api/repositories/remove", {
+          method: "POST",
+          body: {
+            workspaceId: state.activeWorkspaceId,
+            ids: [repoId]
+          }
+        });
+        const removedIds = new Set(result.removedIds);
+        const updated = (result.updated || []).find(
+          (item) => item.id === repoId
         );
-        state.summaries.delete(repoId);
-        state.errors.delete(repoId);
-        state.selectedIds.delete(repoId);
-        state.drafts.delete(repoId);
-        if (state.selectedId === repoId) {
+        if (updated) {
+          repository.workspaceIds = updated.workspaceIds;
+          repository.orders = updated.orders;
+        }
+        state.repositories = state.repositories.filter(
+          (item) => !removedIds.has(item.id)
+        );
+        if (removedIds.has(repoId)) {
+          state.summaries.delete(repoId);
+          state.errors.delete(repoId);
+          state.selectedIds.delete(repoId);
+          state.drafts.delete(repoId);
+        }
+        if (removedIds.has(state.selectedId)) {
           state.selectedId = null;
           state.detail = null;
           const next = getActiveRepositories()[0];
@@ -4713,8 +4762,12 @@
   }
 
   function upsertRepository(repository) {
-    if (!repository.workspaceId) {
-      repository.workspaceId = state.activeWorkspaceId;
+    if (
+      !Array.isArray(repository.workspaceIds) ||
+      !repository.workspaceIds.length
+    ) {
+      repository.workspaceIds = [state.activeWorkspaceId];
+      repository.orders = repository.orders || {};
     }
     const existingIndex = state.repositories.findIndex(
       (item) => item.id === repository.id

@@ -10,11 +10,11 @@ data/repositories.json
 
 可通过 `GITDECK_DATA_DIR` 修改保存目录。
 
-### 版本 3 结构
+### 版本 4 结构
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "workspaces": [
     {
       "id": "workspace-default",
@@ -32,9 +32,9 @@ data/repositories.json
       "id": "368a329adeae",
       "name": "AgisoCodes",
       "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
-      "workspaceId": "ws_99faf5452a3f",
+      "workspaceIds": ["ws_99faf5452a3f", "workspace-default"],
       "addedAt": "2026-10-26T07:51:09.563Z",
-      "order": 0
+      "orders": { "ws_99faf5452a3f": 0, "workspace-default": 3 }
     }
   ]
 }
@@ -44,16 +44,27 @@ data/repositories.json
 
 - 至少存在一个工作区。
 - 工作区名称不区分大小写且不能重复。
-- 每个仓库必须有一个 `workspaceId`。
-- 同一个仓库在顶层列表中只能出现一次。
-- 同一工作区的仓库显示顺序由 `order` 字段决定，从 0 开始且在工作区内连续。
+- 每个仓库的 `workspaceIds` 至少包含一个有效工作区 ID；一个仓库可以同时归属多个工作区。
+- 同一个仓库（按路径）在顶层列表中只能出现一次。
+- 每个仓库的 `orders` 是"工作区 ID → 顺序号"映射；仓库在每个工作区内的显示顺序由 `orders[workspaceId]` 决定，从 0 开始且在该工作区内连续。
+- 顶层 `repositories` 数组顺序是插入顺序，不承载显示语义；显示顺序由前端按当前工作区的 `orders` 排序。
 - 仓库 ID 是规范化绝对路径的小写 SHA-1，截取 12 位十六进制。
 - 工作区 ID 通常是 `ws_` 加 12 位随机十六进制；迁移默认工作区固定为 `workspace-default`。
-- 从工作区移除仓库不能删除磁盘目录。
-- 删除工作区时只移动仓库，不能批量删除仓库元数据。
-- `loadState()` 读取后会按 `(workspaceIndex, order)` 稳定排序顶层 `repositories` 数组，保证 bootstrap 返回顺序与显示顺序一致。
+- 从某个工作区移除仓库只摘除该工作区的归属；如果这是最后一个归属，则整个条目从 GitDeck 列表删除，但绝不删除磁盘目录。
+- 删除工作区时摘除所有仓库对该工作区的归属；失去全部归属的仓库移动到兜底工作区，不能批量删除仓库元数据。
 
 ## 版本迁移
+
+### v3 → v4（多工作区归属）
+
+`RepositoryStore.loadState()` 会：
+
+1. 把每个仓库的 `workspaceId` 转成 `workspaceIds: [workspaceId]`，`order` 转成 `orders: { [workspaceId]: order }`。
+2. 清洗无效归属（不存在的工作区 ID 丢弃；归属为空则放入第一个工作区）。
+3. 对每个工作区把 `orders` 重新密集化为 `0..n-1`。
+4. 把文件重写为版本 4。
+
+迁移可重复执行。
 
 ### v2 → v3（引入 order）
 
@@ -97,7 +108,7 @@ data/repositories.json
 
 不要绕开该队列并发写数据文件。
 
-仓库排序接口只更新对应工作区内仓库的 `order` 字段，不再重排顶层 `repositories` 数组；下一次 `loadState()` 会按 `order` 重新排序。
+仓库排序接口只更新对应工作区内仓库的 `orders[workspaceId]`，不重排顶层 `repositories` 数组；显示顺序由前端按当前工作区排序。
 
 ## 单仓库动作锁
 

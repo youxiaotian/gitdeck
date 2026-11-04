@@ -135,15 +135,16 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
       method: "POST",
       body: {
         path: orderRepositoryPath,
-        workspaceId: repository.workspaceId
+        workspaceId: repository.workspaceIds[0]
       }
     }
   );
   const orderRepository = orderRepositoryResponse.repository;
+  const sharedWorkspaceId = repository.workspaceIds[0];
   await callApi(baseUrl, token, "/api/repositories/reorder", {
     method: "POST",
     body: {
-      workspaceId: repository.workspaceId,
+      workspaceId: sharedWorkspaceId,
       ids: [orderRepository.id, repository.id]
     }
   });
@@ -152,12 +153,17 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     token,
     "/api/bootstrap"
   );
-  assert.deepEqual(
-    orderBootstrap.repositories
-      .filter((item) => item.workspaceId === repository.workspaceId)
-      .map((item) => item.id),
-    [orderRepository.id, repository.id]
+  const orderedEntries = orderBootstrap.repositories.filter((item) =>
+    item.workspaceIds.includes(sharedWorkspaceId)
   );
+  const ordersById = new Map(
+    orderedEntries.map((item) => [item.id, item.orders[sharedWorkspaceId]])
+  );
+  assert.deepEqual(
+    [...ordersById.values()].sort((a, b) => a - b),
+    [0, 1]
+  );
+  assert.ok(ordersById.get(orderRepository.id) < ordersById.get(repository.id));
   await callApi(
     baseUrl,
     token,
@@ -694,19 +700,21 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
       body: { workspaceId: testWorkspace.id }
     }
   );
-  assert.equal(movedRepository.repository.workspaceId, testWorkspace.id);
+  assert.ok(movedRepository.repository.workspaceIds.includes(testWorkspace.id));
+  assert.ok(
+    movedRepository.repository.workspaceIds.length >= 2,
+    "加入新工作区后应保留原有归属"
+  );
 
   const workspaceBootstrap = await callApi(
     baseUrl,
     token,
     "/api/bootstrap"
   );
-  assert.equal(
-    workspaceBootstrap.repositories.find(
-      (item) => item.id === repository.id
-    ).workspaceId,
-    testWorkspace.id
+  const multiMember = workspaceBootstrap.repositories.find(
+    (item) => item.id === repository.id
   );
+  assert.ok(multiMember.workspaceIds.includes(testWorkspace.id));
 
   const workspaceDeleted = await callApi(
     baseUrl,
@@ -714,18 +722,19 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     `/api/workspaces/${testWorkspace.id}`,
     { method: "DELETE" }
   );
-  assert.equal(workspaceDeleted.movedRepositoryCount, 1);
   const movedBackBootstrap = await callApi(
     baseUrl,
     token,
     "/api/bootstrap"
   );
-  assert.equal(
-    movedBackBootstrap.repositories.find(
-      (item) => item.id === repository.id
-    ).workspaceId,
-    workspaceDeleted.workspaceId
+  const afterDelete = movedBackBootstrap.repositories.find(
+    (item) => item.id === repository.id
   );
+  assert.ok(
+    !afterDelete.workspaceIds.includes(testWorkspace.id),
+    "删除工作区后归属被摘除"
+  );
+  assert.ok(afterDelete.workspaceIds.length >= 1);
 
   const removed = await callApi(
     baseUrl,
@@ -734,7 +743,7 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     {
       method: "POST",
       body: {
-        workspaceId: workspaceDeleted.workspaceId,
+        workspaceId: afterDelete.workspaceIds[0],
         ids: [repository.id]
       }
     }

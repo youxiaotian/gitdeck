@@ -1,7 +1,9 @@
 "use strict";
 
 // @module workspace
-// 工作区与仓库元数据 CRUD、跨区移动、移除、排序、Git 顶层解析。
+// 工作区与仓库元数据 CRUD、跨区加入/移出、排序、Git 顶层解析。
+// 数据模型 v4：一个仓库可同时归属多个工作区（workspaceIds），每个工作区
+// 有独立顺序（orders[workspaceId]）。
 // 修改注意：所有写操作都经过 STORE.saveState 的串行队列；getRepository 是 API 入口校验。
 
 const fs = require("node:fs/promises");
@@ -10,6 +12,12 @@ const RepositoryStore = require("./repository-store");
 const { STORE } = require("./config");
 const { httpError } = require("./http");
 const { runProcess, toGitPath } = require("./process");
+
+function isMember(repository, workspaceId) {
+  return Array.isArray(repository.workspaceIds)
+    ? repository.workspaceIds.includes(workspaceId)
+    : repository.workspaceId === workspaceId;
+}
 
 async function addRepository(inputPath, requestedWorkspaceId = "") {
   if (!inputPath || typeof inputPath !== "string") {
@@ -65,8 +73,12 @@ async function addRepository(inputPath, requestedWorkspaceId = "") {
       repositoryPath.toLowerCase()
   );
   if (existing) {
-    if (existing.workspaceId !== workspace.id) {
-      existing.workspaceId = workspace.id;
+    if (!isMember(existing, workspace.id)) {
+      existing.workspaceIds.push(workspace.id);
+      existing.orders[workspace.id] = nextOrderInWorkspace(
+        state,
+        workspace.id
+      );
       await STORE.saveState(state);
     }
     return existing;
@@ -76,9 +88,9 @@ async function addRepository(inputPath, requestedWorkspaceId = "") {
     id: RepositoryStore.repositoryId(repositoryPath),
     name: path.basename(repositoryPath),
     path: repositoryPath,
-    workspaceId: workspace.id,
+    workspaceIds: [workspace.id],
     addedAt: new Date().toISOString(),
-    order: nextOrderInWorkspace(state, workspace.id)
+    orders: { [workspace.id]: 0 }
   };
 
   state.repositories.push(repository);
@@ -145,9 +157,17 @@ async function deleteWorkspace(workspaceId) {
   let nextOrder = nextOrderInWorkspace(state, fallbackWorkspace.id);
   let movedRepositoryCount = 0;
   for (const repository of state.repositories) {
-    if (repository.workspaceId === workspaceId) {
-      repository.workspaceId = fallbackWorkspace.id;
-      repository.order = nextOrder;
+    if (!isMember(repository, workspaceId)) {
+      continue;
+    }
+    repository.workspaceIds = repository.workspaceIds.filter(
+      (id) => id !== workspaceId
+    );
+    delete repository.orders[workspaceId];
+    if (!repository.workspaceIds.length) {
+      // 只属于被删工作区的仓库挪到兜底工作区，不删除任何数据。
+      repository.workspaceIds.push(fallbackWorkspace.id);
+      repository.orders[fallbackWorkspace.id] = nextOrder;
       nextOrder += 1;
       movedRepositoryCount += 1;
     }
@@ -163,6 +183,7 @@ async function deleteWorkspace(workspaceId) {
   };
 }
 
+// 把仓库加入目标工作区（多归属：保留其在其他工作区的归属，幂等）。
 async function moveRepositoryToWorkspace(repositoryId, workspaceId) {
   const state = await STORE.loadState();
   const repository = state.repositories.find(
@@ -172,15 +193,20 @@ async function moveRepositoryToWorkspace(repositoryId, workspaceId) {
     throw httpError(404, "仓库不在当前列表中。");
   }
   const workspace = resolveWorkspace(state, workspaceId);
-  if (repository.workspaceId === workspace.id) {
+  if (isMember(repository, workspace.id)) {
     return repository;
   }
-  repository.order = nextOrderInWorkspace(state, workspace.id);
-  repository.workspaceId = workspace.id;
+  repository.workspaceIds.push(workspace.id);
+  repository.orders[workspace.id] = nextOrderInWorkspace(
+    state,
+    workspace.id
+  );
   await STORE.saveState(state);
   return repository;
 }
 
+// 从指定工作区移出仓库：只摘除该工作区归属；若这是最后一个归属，
+// 则整个条目从 GitDeck 列表删除（磁盘目录不动）。
 async function removeRepositoriesFromWorkspace(workspaceId, inputIds) {
   if (!Array.isArray(inputIds) || !inputIds.length) {
     throw httpError(400, "请选择要移出的仓库。");
@@ -189,18 +215,29 @@ async function removeRepositoriesFromWorkspace(workspaceId, inputIds) {
   resolveWorkspace(state, workspaceId);
   const ids = new Set(inputIds.map(String));
   const removedIds = [];
+  const updated = [];
+
   state.repositories = state.repositories.filter((repository) => {
-    if (
-      repository.workspaceId === workspaceId &&
-      ids.has(repository.id)
-    ) {
+    if (!isMember(repository, workspaceId) || !ids.has(repository.id)) {
+      return true;
+    }
+    repository.workspaceIds = repository.workspaceIds.filter(
+      (id) => id !== workspaceId
+    );
+    delete repository.orders[workspaceId];
+    if (!repository.workspaceIds.length) {
       removedIds.push(repository.id);
       return false;
     }
+    updated.push({
+      id: repository.id,
+      workspaceIds: repository.workspaceIds,
+      orders: repository.orders
+    });
     return true;
   });
   await STORE.saveState(state);
-  return { removedIds };
+  return { removedIds, updated };
 }
 
 async function removeRepository(repositoryId) {
@@ -218,7 +255,7 @@ async function reorderRepositories(workspaceId, inputIds) {
   const state = await STORE.loadState();
   resolveWorkspace(state, workspaceId);
   const current = state.repositories.filter(
-    (repository) => repository.workspaceId === workspaceId
+    (repository) => isMember(repository, workspaceId)
   );
   const currentIds = new Set(current.map((repository) => repository.id));
   const ids = inputIds.map(String);
@@ -236,7 +273,7 @@ async function reorderRepositories(workspaceId, inputIds) {
   ids.forEach((id, index) => {
     const repository = byId.get(id);
     if (repository) {
-      repository.order = index;
+      repository.orders[workspaceId] = index;
     }
   });
   await STORE.saveState(state);
@@ -245,8 +282,11 @@ async function reorderRepositories(workspaceId, inputIds) {
 
 function nextOrderInWorkspace(state, workspaceId) {
   const orders = state.repositories
-    .filter((repository) => repository.workspaceId === workspaceId)
-    .map((repository) => Number(repository.order) || 0);
+    .filter((repository) => isMember(repository, workspaceId))
+    .map(
+      (repository) =>
+        Number(repository.orders?.[workspaceId]) || 0
+    );
   return orders.length ? Math.max(...orders) + 1 : 0;
 }
 
@@ -302,6 +342,7 @@ async function getRepository(id) {
 
 module.exports = {
   addRepository,
+  isMember,
   resolveWorkspace,
   createWorkspace,
   renameWorkspace,

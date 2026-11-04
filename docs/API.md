@@ -43,9 +43,9 @@
       "id": "368a329adeae",
       "name": "AgisoCodes",
       "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
-      "workspaceId": "workspace-default",
+      "workspaceIds": ["workspace-default", "ws_1234567890ab"],
       "addedAt": "2026-10-26T07:51:09.563Z",
-      "order": 0
+      "orders": { "workspace-default": 0, "ws_1234567890ab": 2 }
     }
   ],
   "platform": "win32",
@@ -93,7 +93,7 @@
 
 ### `DELETE /api/workspaces/:id`
 
-删除工作区，并把其中的仓库移动到第一个剩余工作区。最后一个工作区不能删除。
+删除工作区，并摘除所有仓库对该工作区的归属；失去全部归属的仓库移动到第一个剩余工作区。最后一个工作区不能删除。
 
 ```json
 {
@@ -107,7 +107,7 @@
 
 ### `POST /api/repositories`
 
-添加仓库，或把已存在的仓库移动到指定工作区。
+添加仓库；若路径已存在，则把该仓库加入指定工作区（多归属，保留原有归属）。
 
 ```json
 {
@@ -120,7 +120,7 @@
 
 ### `POST /api/repositories/remove`
 
-从一个工作区批量移除仓库元数据，不操作物理目录。
+从一个工作区批量摘除仓库归属；失去全部归属的条目从 GitDeck 列表删除，不操作物理目录。
 
 ```json
 {
@@ -132,8 +132,15 @@
 返回：
 
 ```json
-{ "removedIds": ["368a329adeae", "455499f4ab0c"] }
+{
+  "removedIds": ["368a329adeae"],
+  "updated": [
+    { "id": "455499f4ab0c", "workspaceIds": ["workspace-default"], "orders": { "workspace-default": 0 } }
+  ]
+}
 ```
+
+`removedIds` 是失去全部归属、已从列表删除的仓库；`updated` 是仍属于其他工作区、仅摘除了归属的仓库。
 
 ### `POST /api/repositories/reorder`
 
@@ -150,7 +157,7 @@
 
 ### `POST /api/repositories/:id/workspace`
 
-把单个仓库移动到另一个工作区。
+把单个仓库加入指定工作区（多归属，保留原有归属，幂等）。
 
 ```json
 { "workspaceId": "workspace-default" }

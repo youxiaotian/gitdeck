@@ -9,7 +9,7 @@
 - 运行时依赖：无。
 - 默认地址：`http://127.0.0.1:4321`。
 - 数据文件：`data/repositories.json`。
-- 数据版本：版本 3，仓库带 `order` 字段，工作区与仓库归属。
+- 数据版本：版本 4，仓库可同时归属多个工作区（`workspaceIds` + 每工作区 `orders` 排序）。
 - 自动化测试：`node --test`。
 - 文档检查：`node tools/check-docs.js`。
 

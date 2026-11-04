@@ -1,8 +1,15 @@
 "use strict";
 
+// @module repository-store
+// 工作区/仓库 JSON 存储与版本迁移。version 4：仓库可归属多个工作区
+// （workspaceIds 数组），每个工作区有独立顺序（orders 映射）。
+// 修改注意：迁移必须幂等；saveState 经串行队列写临时文件后原子替换。
+
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+
+const DATA_VERSION = 4;
 
 class RepositoryStore {
   constructor(dataDirectory) {
@@ -28,24 +35,19 @@ class RepositoryStore {
         workspaces.push(defaultWorkspace);
       }
 
-      const workspaceIds = new Set(
-        workspaces.map((workspace) => workspace.id)
-      );
       const repositories = Array.isArray(data.repositories)
         ? data.repositories
         : [];
-      let migrated = data.version !== 3 || !Array.isArray(data.workspaces);
+      let migrated = data.version !== DATA_VERSION;
+
       for (const repository of repositories) {
-        if (!workspaceIds.has(repository.workspaceId)) {
-          repository.workspaceId = workspaces[0].id;
+        if (RepositoryStore.normalizeMemberships(workspaces, repository)) {
           migrated = true;
         }
       }
-
       if (RepositoryStore.normalizeOrder(workspaces, repositories)) {
         migrated = true;
       }
-      RepositoryStore.sortRepositories(workspaces, repositories);
 
       const state = { workspaces, repositories };
       if (migrated) {
@@ -67,7 +69,7 @@ class RepositoryStore {
     await fs.mkdir(this.dataDirectory, { recursive: true });
     const snapshot = JSON.stringify(
       {
-        version: 3,
+        version: DATA_VERSION,
         workspaces,
         repositories
       },
@@ -86,44 +88,85 @@ class RepositoryStore {
     return this.writeQueue;
   }
 
+  // 把单个仓库的归属规范化为 workspaceIds 数组 + orders 映射，兼容 v2/v3 数据。
+  static normalizeMemberships(workspaces, repository) {
+    const validIds = workspaces.map((workspace) => workspace.id);
+    let changed = false;
+
+    let memberships;
+    if (Array.isArray(repository.workspaceIds)) {
+      memberships = repository.workspaceIds.filter((id) =>
+        validIds.includes(id)
+      );
+    } else if (
+      typeof repository.workspaceId === "string" &&
+      validIds.includes(repository.workspaceId)
+    ) {
+      memberships = [repository.workspaceId];
+    } else {
+      memberships = [];
+    }
+    memberships = [...new Set(memberships)];
+    if (!memberships.length) {
+      memberships = [validIds[0]];
+    }
+
+    const legacyWorkspaceId = repository.workspaceId;
+    if (
+      repository.workspaceIds?.join(",") !== memberships.join(",") ||
+      repository.workspaceId !== undefined
+    ) {
+      changed = true;
+    }
+
+    const legacyOrders =
+      typeof repository.order === "number" &&
+      typeof legacyWorkspaceId === "string" &&
+      memberships.includes(legacyWorkspaceId)
+        ? { [legacyWorkspaceId]: repository.order }
+        : {};
+
+    const rawOrders =
+      repository.orders && typeof repository.orders === "object"
+        ? repository.orders
+        : {};
+    const orders = {};
+    for (const id of memberships) {
+      const value = Number(rawOrders[id] ?? legacyOrders[id]);
+      orders[id] = Number.isFinite(value) ? value : 0;
+    }
+
+    repository.workspaceIds = memberships;
+    repository.orders = orders;
+    delete repository.workspaceId;
+    delete repository.order;
+    return changed;
+  }
+
+  // 每个工作区独立紧凑排序：按现有 order 值（缺省排最后）+ 数组位置稳定打散。
   static normalizeOrder(workspaces, repositories) {
     let changed = false;
     for (const workspace of workspaces) {
-      const wsRepos = repositories.filter(
-        (repository) => repository.workspaceId === workspace.id
+      const members = [];
+      repositories.forEach((repository, index) => {
+        if (repository.workspaceIds.includes(workspace.id)) {
+          members.push({ repository, index });
+        }
+      });
+      members.sort(
+        (left, right) =>
+          (left.repository.orders[workspace.id] ?? Number.MAX_SAFE_INTEGER) -
+            (right.repository.orders[workspace.id] ?? Number.MAX_SAFE_INTEGER) ||
+          left.index - right.index
       );
-      const hasOrder = wsRepos.some(
-        (repository) =>
-          typeof repository.order === "number" &&
-          Number.isFinite(repository.order)
-      );
-      if (hasOrder) {
-        wsRepos.sort(
-          (left, right) => (left.order || 0) - (right.order || 0)
-        );
-      }
-      wsRepos.forEach((repository, index) => {
-        if (repository.order !== index) {
-          repository.order = index;
+      members.forEach(({ repository }, index) => {
+        if (repository.orders[workspace.id] !== index) {
+          repository.orders[workspace.id] = index;
           changed = true;
         }
       });
     }
     return changed;
-  }
-
-  static sortRepositories(workspaces, repositories) {
-    const workspaceIndex = new Map(
-      workspaces.map((workspace, index) => [workspace.id, index])
-    );
-    repositories.sort((left, right) => {
-      const leftWorkspace = workspaceIndex.get(left.workspaceId) ?? 0;
-      const rightWorkspace = workspaceIndex.get(right.workspaceId) ?? 0;
-      if (leftWorkspace !== rightWorkspace) {
-        return leftWorkspace - rightWorkspace;
-      }
-      return (left.order || 0) - (right.order || 0);
-    });
   }
 
   static repositoryId(repositoryPath) {
