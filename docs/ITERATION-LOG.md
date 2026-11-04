@@ -14,6 +14,18 @@
 - 已知限制：
 ```
 
+## 2026-11-04 - 修复桌面服务偶发自己退出（刷新报 ERR_CONNECTION_REFUSED）
+
+- 根因：桌面壳用「30 秒收不到前端心跳就 `process.exit(0)`」判断窗口关闭。Chrome 后台节流/冻结、系统睡眠、页面卡顿都会让 `setInterval` 心跳停摆但窗口仍在，服务被误杀；`start.cmd` 隐藏窗口启动，stdout 全丢，连退出原因都查不到。真实复现：桌面模式服务启动后无心跳，30 秒打印「桌面窗口已关闭，GitDeck 退出。」并 exit 0。
+- 修复：
+  - **默认服务常驻**，不再因心跳中断自动退出；需要关窗退出时显式设 `GITDECK_HEARTBEAT=1`。
+  - 看门狗改为可注入时钟的 `createHeartbeatWatchdog()`：120s 超时 + 15s 确认窗口 + 挂起感知（tick 间隔远超周期即判定睡眠/卡顿并重置计时），不会因墙钟跳变误判。
+  - 前端在 `visibilitychange` / `pageshow` / `focus` / `online` 时补发心跳；任何通过令牌校验的 API 请求也会刷新心跳。
+  - 新增 `src/logger.js`：console 输出同步落到 `data/server.log`；`server.js` 注册 `uncaughtException` / `unhandledRejection` 兜底（记录堆栈并继续服务）；所有拉起浏览器的 `spawn` 补 `error` 监听，避免未捕获异常直接终止进程。
+- 数据/API 影响：无数据结构变化；`/api/heartbeat` 语义不变，新增环境变量开关与确认窗口。
+- 验证：真实桌面服务复现修复前退出；`tests/desktop.test.js` 6 组可控时钟用例（持续心跳、超时确认、确认窗口取消、8 小时睡眠跳变、唤醒后完整超时窗口）；真实服务端到端 10/10（心跳续命不退出、停止后按新逻辑退出且日志完整、默认无心跳仍常驻、日志落盘）；`tests/project-files.test.js` 新增 3 组源码回归断言；全量 `node --test` 通过。
+- 已知限制：默认常驻后，关闭窗口会在后台保留一个 Node 进程（重复双击会复用，不会多开）；如不希望保留，设置 `GITDECK_HEARTBEAT=1` 启用带确认窗口的自动退出。
+
 ## 2026-11-04 - 修复拖拽排序要 F5 才生效（v4 回归）
 
 - 根因：v4 把显示顺序从「顶层 `repositories` 数组顺序」改成「每工作区 `orders`」，但 `moveRepositoryOrder()` 的乐观更新仍只重排数组槽位、从不写 `orders[当前工作区]`；`renderRepoList()` → `getActiveRepositories()` 按旧 orders 排序，界面纹丝不动。后端 `reorder` 已正确落盘，所以 F5 重新 bootstrap 后才生效。

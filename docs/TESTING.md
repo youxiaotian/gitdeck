@@ -15,8 +15,13 @@ node --test
 覆盖：
 
 - `start.cmd` 使用 CRLF，避免 `cmd.exe` 拆坏命令；
-- `.gitattributes` 持续固定 `.cmd` 使用 CRLF。
-- 仓库工具栏保留 TortoiseGit 外部打开入口。
+- `.gitattributes` 持续固定 `.cmd` 使用 CRLF；
+- 仓库工具栏保留 TortoiseGit 外部打开入口；
+- 拖拽排序写入 `orders`、看门狗默认常驻、前端心跳补发、文件日志与全局异常兜底等源码约束。
+
+### `tests/desktop.test.js`
+
+用可注入时钟验证心跳看门狗：持续心跳不退出、超时后需确认窗口、确认窗口内补发心跳取消退出、系统睡眠造成的时钟跳变重置计时、唤醒后仍有完整超时窗口。
 
 ### `tests/git-utils.test.js`
 
@@ -64,6 +69,7 @@ node tools/check-docs.js
 | 数据结构 | 使用全新 `GITDECK_DATA_DIR` 的 API 测试和迁移检查 |
 | CSS/布局 | 桌面截图 + 390 px 窄屏截图 |
 | 交互 UI | 真实浏览器点击流程和控制台检查 |
+| 桌面壳/进程生命周期 | `tests/desktop.test.js` + 真实桌面模式服务的启动/心跳/退出验证 |
 | 只改文档 | `node tools/check-docs.js` |
 
 ## 手工 UI 验证矩阵

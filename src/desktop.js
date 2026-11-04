@@ -3,12 +3,19 @@
 // @module desktop
 // 桌面壳 A：浏览器探测、--app 独立窗口、单实例探测、窗口尺寸持久化、心跳看门狗。
 // 修改注意：仅在 GITDECK_DESKTOP=1 时启用看门狗与 app 窗口；否则 server.js 走原浏览器模式。
+// 看门狗不能用「一段时间没心跳」直接退出：Chrome 后台节流、系统睡眠、
+// 页面卡顿都会让心跳中断但窗口仍在，曾导致服务自己挂掉、刷新报 ERR_CONNECTION_REFUSED。
 
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { DATA_ROOT } = require("./config");
+const {
+  DATA_ROOT,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_TIMEOUT_MS,
+  HEARTBEAT_GRACE_MS
+} = require("./config");
 
 const WINDOW_STATE_FILE = path.join(DATA_ROOT, "window.json");
 const DEFAULT_WIDTH = 1680;
@@ -17,10 +24,11 @@ const DEFAULT_HEIGHT = 1000;
 // 让窗口每次都开得太窄。
 const MIN_WIDTH = 1200;
 const MIN_HEIGHT = 800;
-const HEARTBEAT_INTERVAL_MS = 5000;
-const HEARTBEAT_TIMEOUT_MS = 30000;
+// 相邻两次看门狗检查的间隔远大于检查周期，说明系统睡眠/休眠或事件循环被长时间阻塞。
+// 此时 Date.now() 已经跳变，不能据此判定窗口关闭。
+const SUSPEND_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 3;
 
-let lastHeartbeat = Date.now();
+let watchdog = null;
 let watchdogTimer = null;
 
 const BROWSER_CANDIDATES = [
@@ -113,7 +121,9 @@ async function launchAppWindow(url) {
       detached: true,
       stdio: "ignore",
       windowsHide: true
-    }).unref();
+    })
+      .on("error", (error) => console.error(`打开浏览器失败：${error.message}`))
+      .unref();
     return false;
   }
   const { width, height } = await loadWindowSize();
@@ -132,7 +142,9 @@ async function launchAppWindow(url) {
       stdio: "ignore",
       windowsHide: false
     }
-  ).unref();
+  )
+    .on("error", (error) => console.error(`启动浏览器窗口失败：${error.message}`))
+    .unref();
   return true;
 }
 
@@ -163,22 +175,108 @@ function probeInstance(port) {
   });
 }
 
+/**
+ * 纯逻辑看门狗，时间源和退出动作可注入，便于测试各种时钟跳变。
+ * 只有「连续超时 + 确认窗口内仍无心跳 + 期间无系统挂起」才判定窗口已关闭。
+ */
+function createHeartbeatWatchdog({
+  now = Date.now,
+  timeoutMs = HEARTBEAT_TIMEOUT_MS,
+  graceMs = HEARTBEAT_GRACE_MS,
+  suspendThresholdMs = SUSPEND_THRESHOLD_MS,
+  onExit = () => {},
+  onLog = () => {}
+} = {}) {
+  let lastTouchAt = now();
+  let lastTickAt = lastTouchAt;
+  let suspectSince = null;
+  let exited = false;
+
+  return {
+    touch() {
+      lastTouchAt = now();
+      suspectSince = null;
+    },
+    tick() {
+      if (exited) {
+        return;
+      }
+      const current = now();
+      const gap = current - lastTickAt;
+      lastTickAt = current;
+
+      // 系统睡眠/休眠、进程被挂起或主线程长时间阻塞：墙钟跳变，重置计时。
+      if (gap > suspendThresholdMs) {
+        lastTouchAt = current;
+        suspectSince = null;
+        onLog(`检测到时钟跳变 ${Math.round(gap / 1000)}s（睡眠/挂起），已重置心跳计时`);
+        return;
+      }
+      if (current - lastTouchAt <= timeoutMs) {
+        suspectSince = null;
+        return;
+      }
+      if (suspectSince === null) {
+        suspectSince = current;
+        onLog(`心跳超时，进入 ${Math.round(graceMs / 1000)}s 确认窗口`);
+        return;
+      }
+      if (current - suspectSince < graceMs) {
+        return;
+      }
+      exited = true;
+      onLog("确认窗口内仍无心跳，判定桌面窗口已关闭");
+      onExit();
+    },
+    get state() {
+      return { lastTouchAt, lastTickAt, suspectSince, exited };
+    }
+  };
+}
+
 function touchHeartbeat() {
-  lastHeartbeat = Date.now();
+  if (watchdog) {
+    watchdog.touch();
+  }
 }
 
 function startHeartbeatWatchdog() {
-  lastHeartbeat = Date.now();
   if (watchdogTimer) {
     return;
   }
-  watchdogTimer = setInterval(() => {
-    if (Date.now() - lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+  if (HEARTBEAT_TIMEOUT_MS === 0) {
+    console.log(
+      "[heartbeat] 服务默认常驻，不会因窗口后台/睡眠自动退出；设置 GITDECK_HEARTBEAT=1 可启用自动退出。"
+    );
+    return;
+  }
+  watchdog = createHeartbeatWatchdog({
+    onExit: () => {
       console.log("桌面窗口已关闭，GitDeck 退出。");
       process.exit(0);
+    },
+    onLog: (message) => console.log(`[heartbeat] ${message}`)
+  });
+  watchdog.touch();
+  watchdogTimer = setInterval(() => {
+    try {
+      watchdog.tick();
+    } catch (error) {
+      console.error(`[heartbeat] 看门狗异常：${error.stack || error}`);
     }
   }, HEARTBEAT_INTERVAL_MS);
   watchdogTimer.unref();
+  console.log(
+    `[heartbeat] 看门狗已启动：${HEARTBEAT_TIMEOUT_MS / 1000}s 超时 + ${HEARTBEAT_GRACE_MS / 1000}s 确认窗口`
+  );
+}
+
+function stopHeartbeatWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
+  watchdog = null;
 }
 
 module.exports = {
@@ -188,5 +286,8 @@ module.exports = {
   launchAppWindow,
   probeInstance,
   touchHeartbeat,
-  startHeartbeatWatchdog
+  createHeartbeatWatchdog,
+  startHeartbeatWatchdog,
+  stopHeartbeatWatchdog,
+  SUSPEND_THRESHOLD_MS
 };

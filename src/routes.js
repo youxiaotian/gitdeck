@@ -53,6 +53,10 @@ async function handleApi(request, response, url) {
     throw httpError(403, "请求来源不受信任。");
   }
 
+  // 任何已鉴权的 API 活动都算窗口存活：用户在界面上操作时，
+  // 即使心跳定时器被浏览器节流，服务也不该被看门狗误杀。
+  touchHeartbeat();
+
   if (request.method === "GET" && url.pathname === "/api/bootstrap") {
     const state = await STORE.loadState();
     sendJson(response, 200, {

@@ -27,6 +27,20 @@ const AUTO_FETCH_INTERVAL_MS =
     : Number(process.env.GITDECK_AUTO_FETCH_MS) || 5 * 60 * 1000;
 const AUTO_FETCH_CONCURRENCY = 3;
 
+// 桌面模式默认让服务常驻：Chrome 会冻结长时间后台的窗口（JS 完全停止，
+// 不只是节流），系统睡眠也会让心跳中断，任何固定超时都可能把仍在使用的
+// 窗口误判成「已关闭」，导致刷新时 ERR_CONNECTION_REFUSED。
+// 只有显式 GITDECK_HEARTBEAT=1 才启用自动退出，且仍带确认窗口与挂起感知。
+// GITDECK_HEARTBEAT_INTERVAL_MS / _TIMEOUT_MS / _GRACE_MS 主要用于测试时加速。
+const HEARTBEAT_INTERVAL_MS =
+  Number(process.env.GITDECK_HEARTBEAT_INTERVAL_MS) || 5000;
+const HEARTBEAT_TIMEOUT_MS =
+  process.env.GITDECK_HEARTBEAT === "1"
+    ? Number(process.env.GITDECK_HEARTBEAT_TIMEOUT_MS) || 120000
+    : 0;
+const HEARTBEAT_GRACE_MS =
+  Number(process.env.GITDECK_HEARTBEAT_GRACE_MS) || 15000;
+
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -49,5 +63,8 @@ module.exports = {
   MAX_DIFF_BYTES,
   AUTO_FETCH_INTERVAL_MS,
   AUTO_FETCH_CONCURRENCY,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_TIMEOUT_MS,
+  HEARTBEAT_GRACE_MS,
   MIME_TYPES
 };

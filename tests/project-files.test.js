@@ -70,3 +70,42 @@ test("分支列表按提交时间倒序返回", async () => {
     "git branch 命令必须带 --sort=-committerdate，保证分支面板最新分支排在最前"
   );
 });
+
+test("看门狗不再「心跳一断就退出」，且默认超时足够宽", async () => {
+  const [desktop, config] = await Promise.all([
+    fs.readFile(path.join(ROOT, "src", "desktop.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "config.js"), "utf8")
+  ]);
+  assert.match(desktop, /createHeartbeatWatchdog/, "应有可测试的纯逻辑看门狗");
+  assert.match(desktop, /suspectSince/, "超时后必须再经过确认窗口");
+  assert.match(desktop, /gap > suspendThresholdMs/, "必须识别系统睡眠造成的时钟跳变");
+  assert.match(config, /120000/, "显式启用时超时不能退回 30 秒这种易误杀的值");
+  assert.match(config, /GITDECK_HEARTBEAT === "1"/, "自动退出必须显式开启");
+  assert.match(config, /\?\s*Number\(process\.env\.GITDECK_HEARTBEAT_TIMEOUT_MS\)[\s\S]{0,40}:\s*0/,
+    "默认必须是常驻（0 = 不自动退出）");
+});
+
+test("前端心跳在窗口恢复可见时补发，任何鉴权 API 也会续命", async () => {
+  const [html, routes] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "index.html"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "routes.js"), "utf8")
+  ]);
+  for (const event of ["visibilitychange", "pageshow", "focus", "online"]) {
+    assert.ok(html.includes(event), `心跳应在 ${event} 时补发`);
+  }
+  const trusted = routes.indexOf("!isTrustedRequest(request)");
+  const touch = routes.indexOf("touchHeartbeat();", trusted);
+  assert.ok(trusted > 0 && touch > trusted, "鉴权通过后应刷新心跳");
+});
+
+test("隐藏窗口启动也有文件日志与全局异常兜底", async () => {
+  const [server, logger] = await Promise.all([
+    fs.readFile(path.join(ROOT, "server.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "logger.js"), "utf8")
+  ]);
+  assert.match(server, /installFileLogging\(\)/);
+  assert.match(server, /process\.on\("uncaughtException"/);
+  assert.match(server, /process\.on\("unhandledRejection"/);
+  assert.match(logger, /server\.log/, "日志要落到 data/server.log 供排查");
+  assert.match(server, /启动桌面窗口失败/, "拉起浏览器的 spawn 必须有 error 处理");
+});

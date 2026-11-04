@@ -17,6 +17,27 @@ curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 
 确认返回 200 后刷新页面。
 
+## 刷新页面报 `ERR_CONNECTION_REFUSED`（127.0.0.1 拒绝连接）
+
+说明监听 4321 的 Node 服务进程已经不在了，页面本身没有问题。
+
+历史原因：旧版桌面壳用「30 秒收不到前端心跳就 `process.exit(0)`」判断窗口已关闭。Chrome 会节流甚至冻结后台窗口的 JS 定时器，系统睡眠也会让心跳停摆，窗口其实还开着，服务却被误杀。
+
+当前版本：
+
+- 服务**默认常驻**，心跳中断不会导致退出；只有显式设置 `GITDECK_HEARTBEAT=1` 才启用自动退出，且带 120 秒超时、15 秒确认窗口和睡眠挂起感知。
+- 启动、看门狗判定、未捕获异常堆栈都写入 `data/server.log`（超过 256 KB 轮转为 `server.log.1`），隐藏窗口启动时也能查。
+- 未捕获的异步异常会记录堆栈并让服务继续运行，不再静默终止进程。
+
+排查顺序：
+
+```powershell
+Get-Content "C:\Repository\Private\gitdeck\data\server.log" -Tail 30
+curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
+```
+
+日志末尾若是「桌面窗口已关闭，GitDeck 退出。」说明走了自动退出（检查是否设置了 `GITDECK_HEARTBEAT=1`）；若只有启动记录没有退出记录，多半是进程被外部结束或系统重启，重新双击 `start.cmd` 即可。
+
 ## 提示“请求来源不受信任”
 
 - 这是 API 会话令牌校验失败，不是 Git 仓库损坏。

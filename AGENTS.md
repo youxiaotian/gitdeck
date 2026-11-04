@@ -58,6 +58,7 @@
 | 模块 | 职责 |
 | --- | --- |
 | `src/config.js` | 进程级常量与单例（端口、令牌、STORE、路径根） |
+| `src/logger.js` | 轻量文件日志，把 console 输出同步写入 `data/server.log` |
 | `src/http.js` | 响应/请求/鉴权工具 |
 | `src/static.js` | 静态文件服务，注入会话令牌 |
 | `src/routes.js` | `/api/*` 路由分发 |

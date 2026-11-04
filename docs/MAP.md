@@ -42,7 +42,8 @@
 | 子进程封装 | `src/process.js` | `runProcess()`、`runGit()`、`gitAction()`、`toGitPath()` |
 | 单仓库动作锁 | `src/locks.js` | `acquireRepositoryLock()` |
 | 资源管理器/终端/TortoiseGit | `src/shell.js` | `openExplorer()`、`openTerminal()`、`openTortoiseGit()` |
-| 桌面壳：app 窗口与单实例 | `src/desktop.js` | `launchAppWindow()`、`probeInstance()`、`startHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`、`findBrowser()` |
+| 桌面壳：app 窗口与单实例 | `src/desktop.js` | `launchAppWindow()`、`probeInstance()`、`createHeartbeatWatchdog()`、`startHeartbeatWatchdog()`、`stopHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`、`findBrowser()` |
+| 运行日志与进程崩溃兜底 | `src/logger.js`、`server.js` | `installFileLogging()`、`process.on("uncaughtException")`、`process.on("unhandledRejection")` |
 | JSON 存储与迁移 | `src/repository-store.js` | `RepositoryStore.loadState()`、`saveState()`、`normalizeOrder()`、`sortRepositories()` |
 | porcelain/log/branch/stash 解析 | `src/git-utils.js` | `parseStatus()`、`parseLog()`、`parseBranches()`、`parseStashes()`、`parseCommitHistory()`、`isPathInside()` |
 

@@ -729,11 +729,24 @@
             fetch(path, {
               method: "POST",
               headers: headers,
-              body: body ? JSON.stringify(body) : null
+              body: body ? JSON.stringify(body) : null,
+              keepalive: true
             }).catch(function () {});
           } catch (e) {}
         }
-        setInterval(function () { post("/api/heartbeat"); }, 5000);
+        function heartbeat() {
+          post("/api/heartbeat");
+        }
+        // 窗口被最小化/遮挡时 Chrome 会节流定时器，回到前台立刻补一次心跳，
+        // 避免服务端把「心跳被节流」误判成「窗口已关闭」而退出。
+        heartbeat();
+        setInterval(heartbeat, 5000);
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden) heartbeat();
+        });
+        window.addEventListener("pageshow", heartbeat);
+        window.addEventListener("focus", heartbeat);
+        window.addEventListener("online", heartbeat);
         // Chrome 在已有实例运行时会忽略 --window-size，所以加载后按存档尺寸
         // 主动 resizeTo 恢复窗口大小。应用预设期间的 resize 事件不上报，
         // 避免把存档尺寸覆盖成被忽略参数后的小窗口（也避免外框差值导致的逐次缩小）。

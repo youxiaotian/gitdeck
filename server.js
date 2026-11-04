@@ -13,6 +13,21 @@ const { sendError } = require("./src/http");
 const { serveStatic } = require("./src/static");
 const desktop = require("./src/desktop");
 const { startAutoFetch, stopAutoFetch } = require("./src/auto-fetch");
+const { installFileLogging, LOG_FILE } = require("./src/logger");
+
+// start.cmd 以隐藏窗口启动，stdout 无处可看；关键事件同步落盘，
+// 这样「服务自己没了」之后仍能查到原因。
+installFileLogging();
+
+// 任何漏网的异步异常在 Node 默认行为下都会直接终止进程，表现为页面刷新
+// 时 ERR_CONNECTION_REFUSED。请求级已有 try/catch 兜底，这里记录堆栈并让
+// 服务继续运行（本地单用户工具，可用性优先于「异常即退出」的通用建议）。
+process.on("uncaughtException", (error) => {
+  console.error(`[fatal] 未捕获异常，服务继续运行：${error.stack || error}`);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error(`[fatal] 未处理的 Promise 拒绝，服务继续运行：${reason?.stack || reason}`);
+});
 
 const IS_DESKTOP = process.env.GITDECK_DESKTOP === "1";
 
@@ -71,10 +86,13 @@ async function main() {
     const address = `http://${HOST}:${port}`;
     console.log(`GitDeck 已启动：${address}`);
     console.log(`仓库数据目录：${DATA_ROOT}`);
+    console.log(`运行日志：${LOG_FILE}`);
 
     if (IS_DESKTOP) {
       if (process.env.GITDECK_NO_OPEN !== "1") {
-        desktop.launchAppWindow(address);
+        desktop.launchAppWindow(address).catch((error) => {
+          console.error(`启动桌面窗口失败：${error.stack || error}`);
+        });
       }
       desktop.startHeartbeatWatchdog();
     } else if (process.env.GITDECK_NO_OPEN !== "1" && process.platform === "win32") {
@@ -82,13 +100,18 @@ async function main() {
         detached: true,
         stdio: "ignore",
         windowsHide: true
-      }).unref();
+      })
+        .on("error", (error) => console.error(`打开浏览器失败：${error.message}`))
+        .unref();
     }
 
     startAutoFetch();
   });
 
-  server.on("close", stopAutoFetch);
+  server.on("close", () => {
+    stopAutoFetch();
+    console.log("HTTP 服务已关闭。");
+  });
 }
 
 main().catch((error) => {

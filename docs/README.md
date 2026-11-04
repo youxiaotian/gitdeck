@@ -67,7 +67,8 @@
 │  ├─ process.js              # 子进程封装，runGit 注入 safe.directory
 │  ├─ locks.js                # 单仓库动作串行化锁
 │  ├─ shell.js                # 资源管理器、终端、TortoiseGit
-│  ├─ desktop.js              # 桌面壳 A：--app 窗口、单实例、心跳看门狗
+│  ├─ desktop.js              # 桌面壳 A：--app 窗口、单实例、可选心跳看门狗
+│  ├─ logger.js               # 文件日志（data/server.log）
 │  ├─ repository-store.js     # JSON 存储与版本迁移
 │  └─ git-utils.js            # porcelain/log/branch/stash 解析
 ├─ public/
@@ -78,6 +79,7 @@
 ├─ tests/
 │  ├─ api.test.js             # 真实临时仓库的端到端 API 测试
 │  ├─ git-utils.test.js       # 解析和路径工具测试
+│  ├─ desktop.test.js         # 心跳看门狗时钟与挂起场景
 │  └─ project-files.test.js   # 启动脚本和项目文件约束
 ├─ assets/
 │  └─ gitdeck.ico             # 应用图标（快捷方式使用）

@@ -212,13 +212,17 @@
 **用户行为**
 
 - 双击 `start.cmd` 以独立窗口形态启动，无地址栏、无标签页。
-- 关闭窗口后服务自动退出；再次启动会接管已运行实例（只开窗口，不重复启动服务）。
+- 关闭窗口后服务默认继续在后台常驻，刷新或再次双击快捷方式都能立即打开；不会被浏览器后台冻结、系统睡眠等因素误判为"窗口已关闭"而自行退出。
+- 需要"关窗后服务退出"时，启动前设置 `GITDECK_HEARTBEAT=1`；此时连续 120 秒无心跳 + 15 秒确认窗口才退出，睡眠/挂起不会误判。
+- 再次启动会接管已运行实例（只开窗口，不重复启动服务）。
+- 运行日志写入 `data/server.log`（启动、看门狗判定、未捕获异常），隐藏窗口启动时也能排查。
 - 窗口尺寸持久化，下次按上次尺寸打开；Chrome 在已有实例运行时会忽略 `--window-size`，因此页面加载后会读取存档尺寸并 `resizeTo` 恢复，应用预设期间的尺寸变化不上报（防止存档被小窗口覆盖）。
 
 **实现位置**
 
-- `src/desktop.js`：`findBrowser()`、`launchAppWindow()`、`probeInstance()`、`startHeartbeatWatchdog()`、`loadWindowSize()`、`saveWindowSize()`
-- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位、心跳看门狗
+- `src/desktop.js`：`findBrowser()`、`launchAppWindow()`、`probeInstance()`、`createHeartbeatWatchdog()`、`startHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`
+- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位；注册文件日志与全局异常兜底
+- `src/logger.js`：把 console 输出同步写入 `data/server.log`，超 256 KB 轮转为 `.1`
 - 接口：`GET /api/ping`、`POST /api/heartbeat`、`GET/POST /api/window`
 - 前端：`public/index.html` 内联心跳与窗口尺寸上报脚本
 - 启动：`start.cmd` 通过 PowerShell `Start-Process -WindowStyle Hidden` 隐藏控制台
