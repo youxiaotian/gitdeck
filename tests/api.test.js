@@ -24,7 +24,23 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     if (server && !server.killed) {
       server.kill();
     }
-    await fs.rm(fixtureRoot, { recursive: true, force: true });
+    // kill() 是异步的：Windows 上服务进程若仍持有 git 文件句柄，
+    // 立刻 fs.rm 会失败并留下 .tmp-api-test-* 目录。等退出后再带重试删除。
+    if (server && server.exitCode === null && server.signalCode === null) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        server.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    await fs.rm(fixtureRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 200
+    });
   });
 
   await fs.mkdir(repositoryPath, { recursive: true });

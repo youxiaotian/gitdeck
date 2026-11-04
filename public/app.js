@@ -922,7 +922,7 @@
   }
 
   async function moveRepositoryOrder(sourceId, targetId, position) {
-    const originalRepositories = state.repositories.slice();
+    const workspaceId = state.activeWorkspaceId;
     const activeRepositories = getActiveRepositories();
     const sourceIndex = activeRepositories.findIndex(
       (repository) => repository.id === sourceId
@@ -942,18 +942,15 @@
     }
     activeRepositories.splice(insertIndex, 0, moved);
 
-    const members = state.repositories
-      .map((repository, index) => ({ repository, index }))
-      .filter(({ repository }) =>
-        isRepoInWorkspace(repository, state.activeWorkspaceId)
-      )
-      .sort(
-        (left, right) =>
-          workspaceSortValue(left.repository, state.activeWorkspaceId) -
-          workspaceSortValue(right.repository, state.activeWorkspaceId)
-      );
-    members.forEach(({ index }, position) => {
-      state.repositories[index] = activeRepositories[position];
+    // v4：显示顺序由每个工作区的 orders 决定，顶层数组顺序不再承载显示语义。
+    // 乐观更新必须写入 orders[当前工作区]，否则重绘仍按旧顺序排，看起来像没生效。
+    const previousOrders = activeRepositories.map((repository) => ({
+      repository,
+      order: repository.orders?.[workspaceId]
+    }));
+    activeRepositories.forEach((repository, index) => {
+      repository.orders = repository.orders || {};
+      repository.orders[workspaceId] = index;
     });
     renderRepoList();
 
@@ -961,12 +958,18 @@
       await api("/api/repositories/reorder", {
         method: "POST",
         body: {
-          workspaceId: state.activeWorkspaceId,
+          workspaceId,
           ids: activeRepositories.map((repository) => repository.id)
         }
       });
     } catch (error) {
-      state.repositories = originalRepositories;
+      for (const { repository, order } of previousOrders) {
+        if (order === undefined) {
+          delete repository.orders[workspaceId];
+        } else {
+          repository.orders[workspaceId] = order;
+        }
+      }
       renderRepoList();
       showToast("仓库排序保存失败", error.message, "error");
     }

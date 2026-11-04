@@ -14,6 +14,13 @@
 - 已知限制：
 ```
 
+## 2026-11-04 - 修复拖拽排序要 F5 才生效（v4 回归）
+
+- 根因：v4 把显示顺序从「顶层 `repositories` 数组顺序」改成「每工作区 `orders`」，但 `moveRepositoryOrder()` 的乐观更新仍只重排数组槽位、从不写 `orders[当前工作区]`；`renderRepoList()` → `getActiveRepositories()` 按旧 orders 排序，界面纹丝不动。后端 `reorder` 已正确落盘，所以 F5 重新 bootstrap 后才生效。
+- 修复：拖拽后按新顺序直接写 `orders[workspaceId]`；保存失败时按拖拽前保存的旧 orders 精确回滚（旧的 `state.repositories.slice()` 浅拷贝既影响不到排序，也恢复不了对象内字段）；移除不再有意义的顶层数组重排。
+- 验证：CDP 合成真实 HTML5 DragEvent，修复前复现「DOM 不变 / 后端 orders 已变」；修复后不刷新即从 `[a,b,c]` 变 `[b,c,a]`，后端一致、多归属仓库的其他工作区 orders 不受影响、零 console error（5/5）；注入 fetch 失败验证回滚 4/4。`tests/project-files.test.js` 新增源码回归断言。
+- 顺带修复：`tests/api.test.js` 清理钩子等待服务进程退出后再带重试删除 fixture，避免 Windows 文件占用反复留下 `.tmp-api-test-*` 目录（连跑两次验证无残留）。
+
 ## 2026-11-04 - 多工作区归属的状态一致性收尾
 
 - 删除工作区接口新增 `updated` 返回（受影响仓库的最新 `workspaceIds` / `orders`），前端改为以后端数据同步归属与排序，不再本地重算；修复「被迁入兜底工作区的仓库只有归属、缺排序值」的前后端状态不一致。

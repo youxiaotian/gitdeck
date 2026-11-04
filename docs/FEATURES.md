@@ -49,7 +49,7 @@
 
 - 服务端：`moveRepositoryToWorkspace()`、`removeRepositoriesFromWorkspace()`、`addRepository()`。
 - 前端：工作区下方添加按钮、仓库右键菜单、批量选择栏。
-- 排序：HTML5 Drag and Drop、`moveRepositoryOrder()`。
+- 排序：HTML5 Drag and Drop、`moveRepositoryOrder()`；拖拽后立即写入当前工作区 `orders` 并重绘（无需刷新），保存失败按旧 `orders` 回滚。
 - API：`POST /api/repositories/:id/workspace`、`POST /api/repositories/remove`、`DELETE /api/repositories/:id`。
 
 ## 状态总览
