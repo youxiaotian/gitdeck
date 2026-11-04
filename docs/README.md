@@ -9,7 +9,7 @@
 - 运行时依赖：无。
 - 默认地址：`http://127.0.0.1:4321`。
 - 数据文件：`data/repositories.json`。
-- 数据版本：版本 2，包含工作区和仓库归属。
+- 数据版本：版本 3，仓库带 `order` 字段，工作区与仓库归属。
 - 自动化测试：`node --test`。
 - 文档检查：`node tools/check-docs.js`。
 
@@ -18,8 +18,9 @@
 | 任务 | 优先阅读 |
 | --- | --- |
 | 首次接手或新 AI 会话 | `AGENTS.md`，再读本文件 |
+| 定位代码 | `MAP.md`（需求 → 文件 → 符号） |
 | 理解整体设计 | `ARCHITECTURE.md` |
-| 查找功能代码 | `FEATURES.md` |
+| 查找功能行为 | `FEATURES.md` |
 | 修改接口或 Git 动作 | `API.md`、`SECURITY.md` |
 | 修改持久化数据 | `DATA-MODEL.md` |
 | 修改 UI 行为或布局 | `UI-MAP.md`、`FEATURES.md` |
@@ -32,7 +33,8 @@
 
 - `AGENT-GUIDE.md`：AI 上下文加载、修改流程和验证规范。
 - `ARCHITECTURE.md`：系统组成、进程和请求流程。
-- `CODE-MAP.md`：英文符号索引，用于按函数名定位代码。
+- `MAP.md`：需求 → 文件 → 符号的单一速查表。
+- `CODE-MAP.md`：符号索引入口（指向 `MAP.md`）。
 - `FEATURES.md`：功能到代码、接口和测试的索引。
 - `API.md`：HTTP 接口与仓库动作参数。
 - `DATA-MODEL.md`：数据版本、迁移和浏览器本地存储。
@@ -51,20 +53,37 @@
 ```text
 .
 ├─ AGENTS.md                  # 根级 AI 工作约定
-├─ server.js                  # HTTP 服务、API、Git 动作、文件安全
+├─ server.js                  # 薄入口：HTTP 服务、API/静态分发、监听
 ├─ src/
-│  ├─ git-utils.js            # 状态、日志、分支解析和路径工具
-│  └─ repository-store.js     # 工作区/仓库 JSON 存储与迁移
+│  ├─ config.js               # 进程级常量与单例
+│  ├─ http.js                 # 响应/请求/鉴权工具
+│  ├─ static.js               # 静态文件与令牌注入
+│  ├─ routes.js               # /api/* 路由分发
+│  ├─ workspace.js            # 工作区与仓库元数据 CRUD、排序
+│  ├─ git-summary.js          # 状态、详情、历史、远端
+│  ├─ git-actions.js          # 动作白名单分发、Diff、文件读写
+│  ├─ paths.js                # 路径校验、可编辑文件、哈希
+│  ├─ directories.js          # 目录扫描与目录浏览器
+│  ├─ process.js              # 子进程封装，runGit 注入 safe.directory
+│  ├─ locks.js                # 单仓库动作串行化锁
+│  ├─ shell.js                # 资源管理器、终端、TortoiseGit
+│  ├─ desktop.js              # 桌面壳 A：--app 窗口、单实例、心跳看门狗
+│  ├─ repository-store.js     # JSON 存储与版本迁移
+│  └─ git-utils.js            # porcelain/log/branch/stash 解析
 ├─ public/
 │  ├─ index.html              # 静态页面与 SVG 图标
 │  ├─ styles.css              # 工作台布局、响应式和视觉样式
+│  ├─ favicon.png             # 应用图标（favicon，app 窗口任务栏图标来源）
 │  └─ app.js                  # UI 状态、渲染、请求、弹窗和交互
 ├─ tests/
 │  ├─ api.test.js             # 真实临时仓库的端到端 API 测试
 │  ├─ git-utils.test.js       # 解析和路径工具测试
 │  └─ project-files.test.js   # 启动脚本和项目文件约束
+├─ assets/
+│  └─ gitdeck.ico             # 应用图标（快捷方式使用）
 ├─ docs/                      # 当前知识库
 ├─ data/                      # 运行时数据，已忽略
+├─ tools/                     # check-docs.js、make-icon.js、install-shortcut.js
 └─ start.cmd                  # Windows 启动脚本
 ```
 

@@ -1,0 +1,88 @@
+# 速查表
+
+本文件是 GitDeck 的单一"需求 → 文件 → 符号"索引。改任何功能前先在这里定位，再用 `rg -n "<symbol>"` 找调用点。详细行为说明见 `FEATURES.md` / `UI-MAP.md`，符号级英文索引见 `CODE-MAP.md`。
+
+## 服务端（server.js + src/）
+
+| 需求 | 文件 | 关键符号 |
+| --- | --- | --- |
+| 启动、监听、拉起浏览器 | `server.js` | `main()` |
+| 会话令牌与来源校验 | `src/http.js` | `isTrustedRequest()` |
+| JSON 响应/请求/错误 | `src/http.js` | `sendJson()`、`sendError()`、`httpError()`、`readJson()` |
+| 静态文件与令牌注入 | `src/static.js` | `serveStatic()` |
+| 应用图标（favicon） | `src/static.js` | `serveStatic()` 中 `fileMap` 的 `/favicon.png`、`/favicon.ico` |
+| 进程级常量与单例 | `src/config.js` | `SESSION_TOKEN`、`STORE`、`HOST`、`DEFAULT_PORT` |
+| API 路由分发 | `src/routes.js` | `handleApi()` |
+| 工作区 CRUD | `src/workspace.js` | `createWorkspace()`、`renameWorkspace()`、`deleteWorkspace()` |
+| 仓库元数据增删/移动 | `src/workspace.js` | `addRepository()`、`removeRepository()`、`moveRepositoryToWorkspace()`、`removeRepositoriesFromWorkspace()` |
+| 仓库排序 | `src/workspace.js` | `reorderRepositories()`、`nextOrderInWorkspace()` |
+| 仓库 id 解析 | `src/workspace.js` | `getRepository()` |
+| 状态摘要 | `src/git-summary.js` | `getStatusSummary()` |
+| 仓库详情（50 提交+分支+stash+远端） | `src/git-summary.js` | `getRepositoryDetail()` |
+| 提交历史图线 | `src/git-summary.js` | `getCommitHistory()` |
+| 远端解析 | `src/git-summary.js` | `getRemotes()`、`resolveRemoteTarget()` |
+| 仓库可用性断言 | `src/git-summary.js` | `assertRepositoryAvailable()` |
+| 动作白名单分发 | `src/git-actions.js` | `runRepositoryAction()` |
+| 暂存/取消暂存 | `src/git-actions.js` | `stagePaths()`、`unstageAll()`、`unstagePath()` |
+| 提交（全部已暂存） | `src/git-actions.js` | `commit()` |
+| 选中文件提交 | `src/git-actions.js` | `commitSelected()`、`normalizePaths()` |
+| 还原/删除文件 | `src/git-actions.js` | `discardPath()`、`discardPaths()` |
+| 分支切换/创建/合并 | `src/git-actions.js` | `checkoutBranch()`、`createBranch()`、`mergeBranch()`、`validateBranchName()` |
+| 分支删除（本地+远程） | `src/git-actions.js` | `deleteBranches()` |
+| Stash | `src/git-actions.js` | `stashPop()`（`stashSave` 在 switch 内联） |
+| Diff | `src/git-actions.js` | `getDiff()` |
+| 文件读/保存 | `src/git-actions.js` | `getFileContent()`、`saveFileContent()` |
+| 仓库内路径校验 | `src/paths.js` | `validateRepositoryPath()` |
+| 可编辑文件解析（拒符号链接） | `src/paths.js` | `resolveEditableFile()` |
+| 内容哈希/二进制判定 | `src/paths.js` | `hashContent()`、`isProbablyBinary()` |
+| 未跟踪文件补丁 | `src/paths.js` | `createUntrackedPatch()` |
+| 目录扫描 | `src/directories.js` | `discoverRepositories()` |
+| 目录浏览器 | `src/directories.js` | `listDirectories()`、`findExistingDirectory()`、`listSystemRoots()`、`listQuickPaths()` |
+| 子进程封装 | `src/process.js` | `runProcess()`、`runGit()`、`gitAction()`、`toGitPath()` |
+| 单仓库动作锁 | `src/locks.js` | `acquireRepositoryLock()` |
+| 资源管理器/终端/TortoiseGit | `src/shell.js` | `openExplorer()`、`openTerminal()`、`openTortoiseGit()` |
+| 桌面壳：app 窗口与单实例 | `src/desktop.js` | `launchAppWindow()`、`probeInstance()`、`startHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`、`findBrowser()` |
+| JSON 存储与迁移 | `src/repository-store.js` | `RepositoryStore.loadState()`、`saveState()`、`normalizeOrder()`、`sortRepositories()` |
+| porcelain/log/branch 解析 | `src/git-utils.js` | `parseStatus()`、`parseLog()`、`parseBranches()`、`parseStashes()`、`parseGraphHistory()`、`isPathInside()` |
+
+## 前端（public/app.js，单 IIFE）
+
+| 需求 | 符号 |
+| --- | --- |
+| 启动与自动刷新 | `init()`、`refreshAllSummaries()` |
+| 令牌感知 fetch | `api()` |
+| 总渲染协调 | `render()` |
+| 全局摘要 | `renderGlobalSummary()` |
+| 仓库列表与拖拽排序 | `renderRepoList()`、`handleRepoDragStart/Over/Drop()`、`moveRepositoryOrder()` |
+| 工作区下拉 | `renderWorkspacePicker()`、`openWorkspaceDropdown()`、`closeWorkspaceDropdown()` |
+| 主面板/仓库视图 | `renderMain()`、`renderRepositoryView()` |
+| 变更文件树/平铺 | `renderChanges()`、`renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`、`updateFileViewToggle()` |
+| 文件状态 | `fileStatus()`、`collectChangedEntries()` |
+| Diff/编辑器 | `loadFilePreview()`、`renderPreviewHeader()`、`renderEditor()`、`saveEditor()`、`revertEditorChanges()` |
+| 选中提交 | `updateComposerState()`、`submitCommit()` |
+| 批量暂存/还原 | `requestBatchStage()`、`requestBatchDiscard()`、`performBatchDiscard()` |
+| 右侧提交历史 | `ensureContextHistory()`、`renderContextHistory()`、`renderHistoryGraph()`、`renderHistoryDecorations()` |
+| 分支列表与批量删除 | `renderBranchList()`、`matchesBranchSearch()`、`toggleBranchSelection()`、`openDeleteBranchesModal()`、`deleteSelectedBranches()` |
+| Stash | `renderStashList()`、`openStashModal()`、`requestStashAction()` |
+| 远端 | `renderRemoteList()` |
+| 弹窗 | `openModal()`、`closeModal()`、`showConfirm()`、`withModalButton()` |
+| 目录选择器 | `openDirectoryPicker()`、`loadDirectory()`、`renderDirectoryPicker()` |
+| 事件分发 | `handleDocumentClick()`、`handleKeydown()` |
+| 分栏拖动 | `initializeResizers()`、`setResizerWidth()` |
+| 仓库右键菜单 | `openRepoMenu()`、`handleContextMenuClick()` |
+| 批量仓库操作 | `toggleBulkRepository()`、`requestBulkAction()`、`executeBulkAction()`、`requestBulkRemoveRepositories()` |
+| 提示 | `showToast()` |
+| 工具 | `icon()`、`escapeHtml()`、`formatRelative()`、`formatDateTime()` |
+
+## 数据与测试
+
+| 需求 | 文件 |
+| --- | --- |
+| 用户数据 | `data/repositories.json`（版本 3，含 `order`） |
+| 端到端 API 测试 | `tests/api.test.js` |
+| 解析工具测试 | `tests/git-utils.test.js` |
+| 项目文件约束测试 | `tests/project-files.test.js` |
+| 文档检查 | `tools/check-docs.js` |
+| 应用图标生成 | `tools/make-icon.js` → `assets/gitdeck.ico`、`public/favicon.png` |
+| 应用快捷方式安装 | `tools/install-shortcut.js`、`tools/gitdeck-launch.vbs` |
+| 启动脚本 | `start.cmd` |

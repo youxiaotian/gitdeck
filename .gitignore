@@ -8,6 +8,7 @@ data/
 .ui-*/
 .commit-*/
 node_modules/
+.workbuddy/
 *.log
 .DS_Store
 Thumbs.db

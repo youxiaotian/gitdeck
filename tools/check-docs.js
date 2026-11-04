@@ -8,6 +8,7 @@ const REQUIRED_DOCS = [
   "README.md",
   "AGENTS.md",
   "docs/README.md",
+  "docs/MAP.md",
   "docs/AGENT-GUIDE.md",
   "docs/ARCHITECTURE.md",
   "docs/CODE-MAP.md",

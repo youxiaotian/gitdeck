@@ -23,12 +23,6 @@ pause
 exit /b 1
 
 :run
-echo GitDeck 正在启动，浏览器将自动打开……
-"%NODE_EXE%" server.js
-set "EXIT_CODE=%ERRORLEVEL%"
-if "%EXIT_CODE%"=="0" exit /b 0
-echo.
-echo GitDeck 异常退出，退出码：%EXIT_CODE%
-echo 可在当前目录打开命令行并运行 node server.js 查看详细错误。
-pause
-exit /b %EXIT_CODE%
+set "GITDECK_DESKTOP=1"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%NODE_EXE%' -ArgumentList 'server.js' -WorkingDirectory '%CD%' -WindowStyle Hidden"
+exit /b 0

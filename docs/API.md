@@ -17,6 +17,14 @@
 
 ## 初始化
 
+### `GET /api/ping`
+
+公开接口，不需要 `X-GitDeck-Token`。用于桌面模式下的单实例探测。
+
+```json
+{ "ok": true, "app": "gitdeck" }
+```
+
 ### `GET /api/bootstrap`
 
 返回工作区、仓库、平台和版本。
@@ -36,13 +44,32 @@
       "name": "AgisoCodes",
       "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
       "workspaceId": "workspace-default",
-      "addedAt": "2026-10-26T07:51:09.563Z"
+      "addedAt": "2026-10-26T07:51:09.563Z",
+      "order": 0
     }
   ],
   "platform": "win32",
   "version": "1.0.0"
 }
 ```
+
+## 桌面壳
+
+### `POST /api/heartbeat`
+
+前端每 5 秒上报一次心跳。桌面模式下，服务端 30 秒未收到心跳即认为窗口已关闭并退出进程。
+
+### `GET /api/window`
+
+返回上次记住的窗口尺寸 `{ width, height }`。
+
+### `POST /api/window`
+
+```json
+{ "width": 1280, "height": 720 }
+```
+
+持久化到 `data/window.json`，下次以 `--app` 模式启动时读取。宽高被限制在 `640..4096` / `480..2160`。
 
 ## 工作区接口
 

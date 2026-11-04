@@ -13,6 +13,39 @@
 
 **后果：**编辑器和 UI 需要自行实现，优先调用成熟的 Git 命令，不重新实现 Git 语义。
 
+## 服务端拆分为原生 CommonJS 模块
+
+**决策：** `server.js` 拆成薄入口 + `src/` 下 13 个模块，仍用 `require`，不引入构建步骤。
+
+**原因：**
+
+- 单文件 1999 行的边际成本已经偏高，AI 迭代每次都要读全文；
+- 浏览器侧暂未拆分，先把影响面小、有测试覆盖的服务端拆掉；
+- 原生 CommonJS 不需要打包器，复制目录即可运行，零依赖不变。
+
+**后果：** 模块边界由 `@module` 头注释和 `docs/MAP.md` 共同维护；新增动作在 `src/git-actions.js` 的 switch 登记；新增顶级路由在 `src/routes.js` 登记。
+
+## 数据模型 v3：显式 order 字段
+
+**决策：** 仓库元数据增加 `order` 字段，工作区内从 0 连续；`loadState()` 按 `(workspaceIndex, order)` 排序顶层 `repositories` 数组。
+
+**原因：** v2 用顶层数组相对顺序表达排序，增删/移动时只能用"ids 完整覆盖"兜底，易错位且难以局部更新。
+
+**后果：** `reorderRepositories` 只更新 `order`，不再重排数组；`addRepository`/`moveRepositoryToWorkspace`/`deleteWorkspace` 都维护 `order`；迁移可重复执行，已存在合法 `order` 时只做密集化。
+
+## 桌面壳 A：HTTP 内核 + --app 窗口
+
+**决策：** 在零依赖前提下，用系统自带的 Chrome/Edge `--app` 模式包一层独立窗口，而不是 Electron/Tauri。
+
+**原因：**
+
+- 用户明确要求做成桌面应用且坚持零依赖；
+- Node 无 GUI 能力，窗口只能借用系统浏览器；
+- `--app` 模式无地址栏、无标签页，形态接近桌面应用；
+- 单实例 + 心跳看门狗解决"多开"和"关窗后服务残留"。
+
+**后果：** 任务栏图标仍是 Chrome/Edge（PWA 安装可后续替换）；`start.cmd` 通过 PowerShell 隐藏控制台启动；`GITDECK_DESKTOP=1` 启用固定端口、单实例、心跳退出。原"使用本地 HTTP 服务而不是原生桌面外壳"的决策被本决策扩展，HTTP 内核不变。
+
 ## 使用本地 HTTP 服务，而不是原生桌面外壳
 
 **决策：**Node 本地服务 + 浏览器 UI。

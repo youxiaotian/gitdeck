@@ -27,11 +27,11 @@ test(".gitattributes 固定 cmd 文件使用 CRLF", async () => {
 });
 
 test("仓库工具栏保留 TortoiseGit 外部打开入口", async () => {
-  const [html, server] = await Promise.all([
+  const [html, shell] = await Promise.all([
     fs.readFile(path.join(ROOT, "public", "index.html"), "utf8"),
-    fs.readFile(path.join(ROOT, "server.js"), "utf8")
+    fs.readFile(path.join(ROOT, "src", "shell.js"), "utf8")
   ]);
   assert.match(html, /data-repo-action="openTortoiseGit"/);
-  assert.match(server, /TortoiseGitProc\.exe/);
-  assert.match(server, /\/command:log/);
+  assert.match(shell, /TortoiseGitProc\.exe/);
+  assert.match(shell, /\/command:log/);
 });

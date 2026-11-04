@@ -199,6 +199,40 @@
 - 命令：`/command:log /path:<仓库>`
 - 前端：仓库操作栏的 `data-repo-action="openTortoiseGit"`
 
+## 桌面壳 A
+
+**用户行为**
+
+- 双击 `start.cmd` 以独立窗口形态启动，无地址栏、无标签页。
+- 关闭窗口后服务自动退出；再次启动会接管已运行实例（只开窗口，不重复启动服务）。
+- 窗口尺寸持久化，下次按上次尺寸打开。
+
+**实现位置**
+
+- `src/desktop.js`：`findBrowser()`、`launchAppWindow()`、`probeInstance()`、`startHeartbeatWatchdog()`、`loadWindowSize()`、`saveWindowSize()`
+- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位、心跳看门狗
+- 接口：`GET /api/ping`、`POST /api/heartbeat`、`GET/POST /api/window`
+- 前端：`public/index.html` 内联心跳与窗口尺寸上报脚本
+- 启动：`start.cmd` 通过 PowerShell `Start-Process -WindowStyle Hidden` 隐藏控制台
+
+## 应用图标与快捷方式
+
+**用户行为**
+
+- 开始菜单和桌面有 GitDeck 快捷方式，带专属分支图标。
+- 双击快捷方式静默启动（无控制台闪烁），以独立窗口形态打开。
+- 在开始菜单右键 GitDeck → 固定到任务栏（Windows 不允许编程固定，需手动一次）。
+- Chrome `--app` 窗口的任务栏图标来自页面 favicon（`public/favicon.png`）。
+
+**实现位置**
+
+- 图标生成：`tools/make-icon.js`（零依赖手写 PNG/ICO 编码，SDF 绘制）→ `assets/gitdeck.ico`（16–256 共 7 档）+ `public/favicon.png`
+- 快捷方式安装：`tools/install-shortcut.js`（PowerShell WScript.Shell COM 写 `.lnk`，图标指向 `assets/gitdeck.ico`）
+- 静默启动：`tools/gitdeck-launch.vbs` 以隐藏窗口方式运行 `start.cmd`
+- favicon 服务：`src/static.js` 的 `serveStatic()` fileMap 提供 `/favicon.png` 与 `/favicon.ico`
+- 页面声明：`public/index.html` `<link rel="icon">`
+- 重新生成图标：`node tools/make-icon.js`；重装快捷方式：`node tools/install-shortcut.js`
+
 ## 可拖拽分栏
 
 **用户行为**

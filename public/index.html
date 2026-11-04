@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="gitdeck-token" content="__GITDECK_TOKEN__" />
     <title>GitDeck - 多仓工作台</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -716,5 +717,36 @@
     <div class="screen-reader-status" id="screenReaderStatus" aria-live="polite"></div>
 
     <script src="/app.js" defer></script>
+    <script>
+      (function () {
+        var token = document
+          .querySelector('meta[name="gitdeck-token"]')
+          .getAttribute("content");
+        function post(path, body) {
+          var headers = { "X-GitDeck-Token": token };
+          if (body) headers["Content-Type"] = "application/json";
+          try {
+            fetch(path, {
+              method: "POST",
+              headers: headers,
+              body: body ? JSON.stringify(body) : null
+            }).catch(function () {});
+          } catch (e) {}
+        }
+        setInterval(function () { post("/api/heartbeat"); }, 5000);
+        function reportSize() {
+          post("/api/window", {
+            width: window.innerWidth,
+            height: window.innerHeight
+          });
+        }
+        window.addEventListener("load", reportSize);
+        var resizeTimer;
+        window.addEventListener("resize", function () {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(reportSize, 500);
+        });
+      })();
+    </script>
   </body>
 </html>

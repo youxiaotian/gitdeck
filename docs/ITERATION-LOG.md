@@ -14,6 +14,63 @@
 - 已知限制：
 ```
 
+## 2026-11-04 - 应用图标与开始菜单/桌面快捷方式
+
+- 目标：让 GitDeck 像应用一样可快捷启动、可固定任务栏，并有高辨识度专属图标。
+- 改动：
+  - 新增 `tools/make-icon.js`：零依赖手写 PNG 编码（zlib + CRC32）+ ICO 容器，SDF 数学绘制抗锯齿图形；主题与 `styles.css` 设计 token 同源（深绿底 + 绿色分支图 + 米白分支节点）；
+  - 生成 `assets/gitdeck.ico`（16/24/32/48/64/128/256 共 7 档）与 `public/favicon.png`；
+  - 新增 `tools/install-shortcut.js`：通过 PowerShell WScript.Shell COM 在开始菜单与桌面创建 `GitDeck.lnk`（图标指向 `assets/gitdeck.ico`）；
+  - 新增 `tools/gitdeck-launch.vbs`：静默启动器，运行 `start.cmd` 无控制台闪烁；
+  - `src/static.js` fileMap 增加 `/favicon.png`、`/favicon.ico`；`src/config.js` MIME 增加 `.png`、`.ico`；
+  - `public/index.html` 增加 `<link rel="icon">`。
+- 数据/API 影响：无（纯静态资源与桌面集成）。
+- 验证：
+  - `start.cmd` 静默链路实测：`/api/ping` 200、`/favicon.ico` 与 `/favicon.png` 200（4265 字节）、首页 200；
+  - 快捷方式实际写入开始菜单 `Programs` 与桌面；
+  - ICO 头/目录/内嵌 PNG 签名逐项校验通过。
+- 已知限制：Windows 不允许编程固定到任务栏，需在开始菜单右键 GitDeck → 固定到任务栏（仅一次）；运行中的 `--app` 窗口任务栏图标来自 favicon，从任务栏直接固定 Chrome 窗口会带 Chrome 标识，建议从开始菜单的 GitDeck 快捷方式固定。
+
+## 2026-11-03 - 桌面壳 A（app 模式独立窗口）
+
+- 目标：脱离浏览器标签页，以独立桌面窗口形态运行。
+- 改动：
+  - 新增 `src/desktop.js`：探测 Chrome/Edge，以 `--app` 模式拉起无地址栏独立窗口；
+  - `server.js` 在 `GITDECK_DESKTOP=1` 时固定端口、单实例探测（已存在实例则只开窗口并退出）、启动心跳看门狗；
+  - 新增 `GET /api/ping`（公开，单实例探测）、`POST /api/heartbeat`、`GET/POST /api/window`；
+  - `index.html` 增加内联心跳与窗口尺寸上报脚本，每 5 秒一次心跳；
+  - 窗口尺寸持久化到 `data/window.json`，下次启动按上次尺寸打开；
+  - `start.cmd` 改为桌面模式，通过 PowerShell `Start-Process -WindowStyle Hidden` 隐藏控制台。
+- 数据/API 影响：
+  - 新增 3 个 API（ping/heartbeat/window）；
+  - `data/window.json` 为运行时数据，已忽略。
+- 验证：
+  - `node --check` 全部通过；
+  - 桌面模式冒烟：ping 公开返回 200，单实例第二次启动 exit 0，心跳 200，窗口尺寸 GET/POST 正确并落盘，无 token 心跳 403；
+  - `tests/project-files.test.js` 3/3 通过。
+- 已知限制：
+  - 任务栏图标仍是 Chrome/Edge（后续 PWA manifest 可换成自有图标）；
+  - 桌面模式下端口被非 GitDeck 程序占用时报错退出，不自增端口。
+
+## 2026-11-03 - 服务端模块拆分与数据模型 v3
+
+- 目标：为后续桌面化和体验打磨打基础，降低单文件巨石的迭代成本。
+- 改动：
+  - 把 1999 行的 `server.js` 拆成薄入口 + 13 个 `src/` 模块（config/http/static/routes/workspace/git-summary/git-actions/paths/directories/process/locks/shell/repository-store/git-utils），每个模块加 `@module` 头注释；
+  - 新增 `docs/MAP.md` 作为"需求 → 文件 → 符号"单一速查表，`AGENTS.md` 精简并指向它；
+  - `docs/CODE-MAP.md` 改为指向 `MAP.md` 的入口，避免双份符号表漂移；
+  - `tools/check-docs.js` 把 `docs/MAP.md` 加入必需文档清单；
+  - 数据模型升级到版本 3，仓库增加显式 `order` 字段；`loadState()` 自动迁移 v2 并按 `(workspaceIndex, order)` 排序；`reorderRepositories` 改为只更新 `order`，不再重排顶层数组；
+  - `tests/project-files.test.js` 的 TortoiseGit 断言随代码迁移到 `src/shell.js`。
+- 数据/API 影响：
+  - `repositories.json` 版本 2 → 3，迁移可重复执行；
+  - API 行为不变，`bootstrap` 返回顺序仍按工作区显示顺序。
+- 验证：
+  - 全部模块 `node --check` 通过；
+  - 用临时数据目录跑 read/write 回归：bootstrap、status、detail、history、diff、file、stageFile、unstageAll、createWorkspace、reorder、discover、directories、404、403 全部符合预期；
+  - v2→v3 迁移在真实数据副本上验证：9 个仓库全部获得连续 `order`，版本写入 3；
+  - `tests/project-files.test.js` + `tests/git-utils.test.js` 共 8/8 通过。
+
 ## 2026-11-03 - 仓库拖拽排序与会话自动恢复
 
 - 目标：允许自定义仓库顺序，并修复服务重启后的旧令牌错误。

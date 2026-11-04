@@ -10,11 +10,11 @@ data/repositories.json
 
 可通过 `GITDECK_DATA_DIR` 修改保存目录。
 
-### 版本 2 结构
+### 版本 3 结构
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "workspaces": [
     {
       "id": "workspace-default",
@@ -33,7 +33,8 @@ data/repositories.json
       "name": "AgisoCodes",
       "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
       "workspaceId": "ws_99faf5452a3f",
-      "addedAt": "2026-10-26T07:51:09.563Z"
+      "addedAt": "2026-10-26T07:51:09.563Z",
+      "order": 0
     }
   ]
 }
@@ -45,13 +46,26 @@ data/repositories.json
 - 工作区名称不区分大小写且不能重复。
 - 每个仓库必须有一个 `workspaceId`。
 - 同一个仓库在顶层列表中只能出现一次。
-- 同一工作区的仓库显示顺序由顶层 `repositories` 数组中的相对顺序保存。
+- 同一工作区的仓库显示顺序由 `order` 字段决定，从 0 开始且在工作区内连续。
 - 仓库 ID 是规范化绝对路径的小写 SHA-1，截取 12 位十六进制。
 - 工作区 ID 通常是 `ws_` 加 12 位随机十六进制；迁移默认工作区固定为 `workspace-default`。
 - 从工作区移除仓库不能删除磁盘目录。
 - 删除工作区时只移动仓库，不能批量删除仓库元数据。
+- `loadState()` 读取后会按 `(workspaceIndex, order)` 稳定排序顶层 `repositories` 数组，保证 bootstrap 返回顺序与显示顺序一致。
 
-## 版本 1 迁移
+## 版本迁移
+
+### v2 → v3（引入 order）
+
+`RepositoryStore.loadState()` 会：
+
+1. 对每个工作区，按当前 `repositories` 数组中的相对顺序赋值 `order = 0..n-1`。
+2. 按 `(workspaceIndex, order)` 排序顶层 `repositories` 数组。
+3. 把文件重写为版本 3。
+
+迁移可重复执行：已存在合法 `order` 时按 `order` 排序后重新密集化为 `0..n-1`。
+
+### v1 → v2 → v3
 
 旧版数据结构：
 
@@ -68,7 +82,8 @@ data/repositories.json
 
 1. 创建或读取默认工作区。
 2. 把没有有效 `workspaceId` 的仓库放入第一个工作区。
-3. 把文件重写为版本 2。
+3. 按 v2→v3 规则赋值 `order`。
+4. 把文件重写为版本 3。
 
 迁移可重复执行，不会重复产生默认工作区。
 
@@ -82,7 +97,7 @@ data/repositories.json
 
 不要绕开该队列并发写数据文件。
 
-仓库排序接口只替换该工作区对应的数组槽位，不打乱其他工作区记录。
+仓库排序接口只更新对应工作区内仓库的 `order` 字段，不再重排顶层 `repositories` 数组；下一次 `loadState()` 会按 `order` 重新排序。
 
 ## 单仓库动作锁
 
