@@ -52,6 +52,8 @@
 | 右键菜单 | `#contextMenu` |
 | 提示 | `#toastRegion` |
 
+目录选择器列表滚动期间保持轻量：`hideContextMenu()` 在菜单已隐藏时不再写 `hidden` 属性，`window` 的滚动监听使用 `passive`，自动刷新定时器在 `#directoryPickerBackdrop` 可见时跳过整页 `render()`；样式上 `.directory-list` 使用 `contain: layout paint` 与 `overscroll-behavior: contain`，`.directory-backdrop` 不使用全屏 `backdrop-filter`。
+
 ## 前端状态分组
 
 `public/app.js` 顶部的 `state` 对象包含：

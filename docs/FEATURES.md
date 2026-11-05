@@ -24,7 +24,7 @@
 **用户行为**
 
 - 手动输入路径添加仓库。
-- 使用内置目录浏览器选择目录。
+- 使用内置目录浏览器选择目录；列表滚动保持流畅（遮罩不做全屏模糊、滚动时不写 DOM、选目录期间暂停后台整页刷新）。
 - 扫描上级目录并批量选择发现的仓库。
 - 新仓库加入当前工作区。
 
@@ -34,6 +34,7 @@
 - `discoverRepositories()` 递归扫描，并跳过常见构建与依赖目录。
 - `listDirectories()` 为内置目录选择器提供数据。
 - 前端：`openAddRepositoryModal()`、`openScanModal()`、`openDirectoryPicker()`、`renderDirectoryPicker()`。
+- 滚动性能：`public/styles.css` 的 `.directory-list`（`contain: layout paint`、`overscroll-behavior: contain`）与 `.directory-backdrop`（无 `backdrop-filter`）；`hideContextMenu()` 用 passive 监听且菜单已隐藏时不写 DOM；自动刷新在目录选择器打开时跳过。
 
 ## 工作区仓库维护
 

@@ -17,7 +17,8 @@ node --test
 - `start.cmd` 使用 CRLF，避免 `cmd.exe` 拆坏命令；
 - `.gitattributes` 持续固定 `.cmd` 使用 CRLF；
 - 仓库工具栏保留 TortoiseGit 外部打开入口；
-- 拖拽排序写入 `orders`、看门狗默认常驻、前端心跳补发、文件日志与全局异常兜底等源码约束。
+- 拖拽排序写入 `orders`、看门狗默认常驻、前端心跳补发、文件日志与全局异常兜底等源码约束；
+- 目录选择器的 passive 滚动监听、无重复 DOM 写入、重绘隔离与打开时暂停后台刷新。
 
 ### `tests/desktop.test.js`
 

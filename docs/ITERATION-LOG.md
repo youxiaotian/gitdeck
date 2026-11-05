@@ -14,6 +14,17 @@
 - 已知限制：
 ```
 
+## 2026-11-05 - 修复添加仓库时目录选择器滚动卡顿
+
+- 根因（真实浏览器滚轮 + DevTools 探针确认）：`window` 上捕获阶段的 `scroll` 监听每帧调用 `hideContextMenu()`，无条件写 `elements.contextMenu.hidden = true`；实测 40 次滚动事件对应 40 次 `hidden` 属性写入，反复触发样式失效。叠加全屏 `backdrop-filter: blur(2px)` 遮罩、滚动链穿透、以及每 20 秒一次 `refreshAllSummaries()` → `render()` 整页重绘，滚轮明显不跟手。
+- 修复：
+  - `hideContextMenu()` 在菜单已隐藏时跳过 DOM 写入；滚动监听改为 `{ capture: true, passive: true }` 且只在菜单可见时处理。
+  - `.directory-backdrop` 去掉 `backdrop-filter`（深色半透明遮罩视觉几乎无变化）；`.directory-list` 增加 `contain: layout paint` 与 `overscroll-behavior: contain`。
+  - 目录选择器打开时跳过定时自动刷新，关闭后自动恢复，避免滚动过程中后台重建整页 DOM。
+- 数据/API 影响：无。
+- 验证：真实浏览器合成滚轮事件复现「40 次滚动 / 40 次 hidden 写入」，修复后归零；右键菜单在可见状态下滚动仍会关闭；加速定时器验证打开时 0 次状态请求、关闭后恢复；截图确认弹窗与滚动条外观正常。`tests/project-files.test.js` 新增源码回归断言，全量 `node --test` 与 `check-docs` 通过。
+- 已知限制：无头/虚拟显示环境会把 rAF 限速到约 10ms，无法量化 GPU 合成层的帧率差异；全屏模糊的开销按已知渲染陷阱移除，真机流畅度需用户实际滚动确认。
+
 ## 2026-11-04 - 修复桌面服务偶发自己退出（刷新报 ERR_CONNECTION_REFUSED）
 
 - 根因：桌面壳用「30 秒收不到前端心跳就 `process.exit(0)`」判断窗口关闭。Chrome 后台节流/冻结、系统睡眠、页面卡顿都会让 `setInterval` 心跳停摆但窗口仍在，服务被误杀；`start.cmd` 隐藏窗口启动，stdout 全丢，连退出原因都查不到。真实复现：桌面模式服务启动后无心跳，30 秒打印「桌面窗口已关闭，GitDeck 退出。」并 exit 0。

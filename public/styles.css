@@ -3401,6 +3401,9 @@ body.is-resizing * {
 .directory-backdrop {
   z-index: 120;
   background: rgba(12, 23, 19, 0.3);
+  /* 全屏模糊层会让内部列表滚动时每帧重新采样背景，去掉后视觉几乎无差别。 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 body.modal-open {
@@ -3606,6 +3609,9 @@ body.modal-open {
   background: #fff;
   scrollbar-color: #c6c1b5 transparent;
   scrollbar-width: thin;
+  /* 把滚动重绘限制在列表内部，并阻止滚动链穿透到页面。 */
+  contain: layout paint;
+  overscroll-behavior: contain;
 }
 
 .directory-row {

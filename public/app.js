@@ -221,9 +221,14 @@
     }
 
     state.autoRefreshTimer = window.setInterval(() => {
-      if (!document.hidden) {
-        refreshAllSummaries({ quiet: true });
+      if (document.hidden) {
+        return;
       }
+      // 目录选择器打开时不做整页重绘：后台重建 DOM 会让正在滚动的列表明显掉帧。
+      if (!elements.directoryPickerBackdrop.hidden) {
+        return;
+      }
+      refreshAllSummaries({ quiet: true });
     }, 20000);
   }
 
@@ -426,7 +431,16 @@
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("keydown", handleKeydown);
     window.addEventListener("resize", hideContextMenu);
-    window.addEventListener("scroll", hideContextMenu, true);
+    window.addEventListener(
+      "scroll",
+      () => {
+        // 菜单本来就隐藏时直接返回：滚动事件极高频，不能每帧都写 DOM。
+        if (!elements.contextMenu.hidden) {
+          hideContextMenu();
+        }
+      },
+      { capture: true, passive: true }
+    );
     initializeResizers();
   }
 
@@ -4001,7 +4015,11 @@
   }
 
   function hideContextMenu() {
-    elements.contextMenu.hidden = true;
+    // 滚动等高频事件会反复调用这里。值没变化时不要写 DOM 属性，
+    // 否则每次滚动都会触发一次样式失效，拖慢滚动。
+    if (!elements.contextMenu.hidden) {
+      elements.contextMenu.hidden = true;
+    }
     state.menuRepositoryId = null;
   }
 

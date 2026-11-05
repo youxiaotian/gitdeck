@@ -109,3 +109,26 @@ test("隐藏窗口启动也有文件日志与全局异常兜底", async () => {
   assert.match(logger, /server\.log/, "日志要落到 data/server.log 供排查");
   assert.match(server, /启动桌面窗口失败/, "拉起浏览器的 spawn 必须有 error 处理");
 });
+
+test("目录选择器滚动不再每帧写 DOM、不再做全屏模糊与整页重绘", async () => {
+  const [app, css] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "styles.css"), "utf8")
+  ]);
+  assert.match(app, /if \(!elements\.contextMenu\.hidden\)/,
+    "隐藏状态下不能重复写 hidden 属性，否则每次滚动都触发样式失效");
+  assert.match(app, /capture: true, passive: true/, "滚动监听必须 passive");
+  assert.match(app, /if \(!elements\.directoryPickerBackdrop\.hidden\)/,
+    "目录选择器打开时要跳过后台整页重绘");
+  const backdrop = css.slice(
+    css.indexOf(".directory-backdrop {"),
+    css.indexOf("body.modal-open {")
+  );
+  assert.match(backdrop, /backdrop-filter: none/, "目录遮罩不能带全屏模糊");
+  const list = css.slice(
+    css.indexOf(".directory-list {"),
+    css.indexOf(".directory-row {")
+  );
+  assert.match(list, /contain: layout paint/, "列表要把重绘限制在自身");
+  assert.match(list, /overscroll-behavior: contain/, "要阻止滚动链穿透");
+});
