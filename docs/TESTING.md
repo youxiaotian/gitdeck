@@ -21,7 +21,7 @@ node --test
 - 目录选择器的 passive 滚动监听、无重复 DOM 写入、重绘隔离与打开时暂停后台刷新；
 - 多选批量添加：只在添加仓库启用、切换目录不清空选择集、关闭时清空、增量更新不重建列表、批量上限与失败项保留。
 
-交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表），该探针是临时脚本，验证完删除，不入库。
+交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表）。探针脚本和 Chrome profile 放在 `.workbuddy/scratch/`，验证完用 `node tools/clean-scratch.js` 清理，不入库。
 
 ### `tests/desktop.test.js`
 
@@ -139,16 +139,17 @@ node tools/check-docs.js
 
 使用无头 Chrome 验证时：
 
-- 使用工作区内的独立 `--user-data-dir`；
+- 使用 `.workbuddy/scratch/` 内的独立 `--user-data-dir`；
 - 添加 `--no-sandbox --disable-gpu --disable-software-rasterizer`；
 - 需要 CDP 时添加 `--remote-debugging-port` 和 `--remote-allow-origins=*`；
-- 写入 Git 状态的流程必须使用临时工作区和临时仓库；
+- 写入 Git 状态的流程必须使用 `<repo>/.workbuddy/scratch/` 内的临时仓库；
 - 验证完成后清理元数据和目录；
 - 完成流程后确认控制台没有 error。
 
 ## 测试数据规则
 
-- 名称优先以 `.tmp-`、`.ui-`、`.chrome-` 开头。
-- 测试仓库放在 `C:\Repository\Private` 下。
-- 递归清理前必须确认绝对路径位于工作区内。
-- 禁止在用户业务仓库上执行破坏性验证。
+- 所有临时目录、测试仓库、裸远端、Chrome profile 和探针脚本**一律放在 `.workbuddy/scratch/` 内**，用 `node tools/clean-scratch.js --new <prefix>` 创建。
+- 不再在项目根目录创建 `.tmp-*`、`.ui-*`、`.chrome-*` 等散落目录。
+- 不再把测试仓库放到 `<repo>` 之外的父目录、用户目录或系统临时目录。
+- 清理只运行 `node tools/clean-scratch.js`；不使用 `rm -rf` 或通配符批量删除。
+- `data/repositories.json` 是用户数据，测试不得重置；禁止在用户业务仓库上执行破坏性验证。

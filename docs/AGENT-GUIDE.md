@@ -127,12 +127,12 @@ node --test
 node tools/check-docs.js
 ```
 
-需要写入当前工作区之外的业务仓库时：
+所有写入与验证都在当前 git 目录 `<repo>` 内完成：
 
-- 使用正常本地权限启动服务；
-- 优先创建临时仓库验证；
+- 临时仓库建在 `<repo>/.workbuddy/scratch/`，不访问 `<repo>` 之外的业务仓库；
+- 用 `node tools/clean-scratch.js --new <prefix>` 创建，验证后用 `node tools/clean-scratch.js` 清理；
 - 操作后用 Git 检查真实状态；
-- 清理测试元数据和临时目录。
+- 清理测试元数据和临时目录，不动 `data/repositories.json`。
 
 UI 交互验证：
 
@@ -155,11 +155,11 @@ UI 交互验证：
 
 ## 安全清理
 
-- 递归删除前先解析绝对路径。
-- 确认路径位于 `C:\Repository\Private`。
-- 优先使用 `Remove-Item -LiteralPath`。
-- 绝不清理用户工作区或业务仓库。
-- 不得通过删除 `data/repositories.json` 来清理测试数据。
+- 所有临时产物只放在 `.workbuddy/scratch/`，规则见根 `AGENTS.md`。
+- 清理统一运行 `node tools/clean-scratch.js`（先加 `--dry-run` 预览）。脚本路径由 `__dirname` 推导，不接受路径参数，只删除沙盒第一层条目，不跟随符号链接，不递归到沙盒之外。
+- 不使用 `rm -rf`、通配符批量删除或 `Remove-Item -Recurse` 清理临时产物。
+- 绝不清理用户工作区、业务仓库、`data/repositories.json`、`data/server.log` 或 `.workbuddy/memory/`。
+- Windows 文件占用可能让测试留下空目录，跑一次清理脚本即可收尾，无需手工递归删除。
 
 ## 文档维护约定
 
@@ -175,4 +175,4 @@ UI 交互验证：
 
 ## 当前环境注意事项
 
-Codex 沙箱可能不能写入当前工作区之外的位置。GitDeck 在用户正常账号下可以执行的操作，在沙箱进程中可能报 `index.lock` 或写入失败。不要为了通过沙箱验证而放宽安全设置或修改仓库 ACL，应使用正常本地权限启动服务验证。
+所有验证都在 `<repo>` 内完成，不访问工作区之外的目录，因此不会触发越界写入或权限确认。若仍遇到 `index.lock` 或写入失败，检查是否有其他 Git 进程占用，不要为了通过验证而放宽安全设置、修改仓库 ACL 或关闭 Git 安全目录检查。

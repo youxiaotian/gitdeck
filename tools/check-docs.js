@@ -79,6 +79,7 @@ async function collectMarkdownFiles(directory) {
   for (const entry of entries) {
     if (
       entry.name === ".git" ||
+      entry.name === ".workbuddy" ||
       entry.name === "data" ||
       entry.name === "node_modules"
     ) {

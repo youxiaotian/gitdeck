@@ -7,11 +7,12 @@ const path = require("node:path");
 const test = require("node:test");
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
+const SCRATCH_ROOT = path.join(PROJECT_ROOT, ".workbuddy", "scratch");
 
 test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
   const fixtureRoot = path.join(
-    PROJECT_ROOT,
-    `.tmp-api-test-${process.pid}-${Date.now()}`
+    SCRATCH_ROOT,
+    `api-test-${process.pid}-${Date.now()}`
   );
   const repositoryPath = path.join(fixtureRoot, "demo-repository");
   const orderRepositoryPath = path.join(fixtureRoot, "order-repository");
@@ -25,7 +26,7 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
       server.kill();
     }
     // kill() 是异步的：Windows 上服务进程若仍持有 git 文件句柄，
-    // 立刻 fs.rm 会失败并留下 .tmp-api-test-* 目录。等退出后再带重试删除。
+    // 立刻 fs.rm 会失败并在沙盒里留下 api-test-* 目录。等退出后再带重试删除。
     if (server && server.exitCode === null && server.signalCode === null) {
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 2000);
@@ -43,6 +44,7 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     });
   });
 
+  await fs.mkdir(SCRATCH_ROOT, { recursive: true });
   await fs.mkdir(repositoryPath, { recursive: true });
   await fs.mkdir(orderRepositoryPath, { recursive: true });
   runGit(repositoryPath, ["init", "-b", "main"]);
@@ -794,10 +796,8 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
 
 test("RepositoryStore 会清洗脏 orders 并写回磁盘", async () => {
   const RepositoryStore = require("../src/repository-store");
-  const os = require("node:os");
-  const directory = await fs.mkdtemp(
-    path.join(os.tmpdir(), "gitdeck-store-")
-  );
+  await fs.mkdir(SCRATCH_ROOT, { recursive: true });
+  const directory = await fs.mkdtemp(path.join(SCRATCH_ROOT, "store-"));
   try {
     const store = new RepositoryStore(directory);
     await store.saveState({

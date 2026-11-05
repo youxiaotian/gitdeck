@@ -9,6 +9,7 @@
 - 运行时依赖：无。
 - 默认地址：`http://127.0.0.1:4321`。
 - 数据文件：`data/repositories.json`。
+- 路径基准：所有文档路径相对当前 Git 仓库根目录 `<repo>`；开发、测试、清理一律在 `<repo>` 内，临时目录为 `.workbuddy/scratch/`，不引用机器专属固定目录。
 - 数据版本：版本 4，仓库可同时归属多个工作区（`workspaceIds` + 每工作区 `orders` 排序）。
 - 自动化测试：`node --test`。
 - 文档检查：`node tools/check-docs.js`。

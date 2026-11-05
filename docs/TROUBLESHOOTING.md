@@ -32,7 +32,7 @@ curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 排查顺序：
 
 ```powershell
-Get-Content "C:\Repository\Private\gitdeck\data\server.log" -Tail 30
+Get-Content .\data\server.log -Tail 30
 curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 ```
 
@@ -57,10 +57,10 @@ curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 - 增加 `.gitattributes`，固定 `*.cmd` 使用 CRLF；
 - 在 `start.cmd` 中加入 `node.exe` 常见安装路径兜底。
 
-如果文件被编辑器重新保存后再次出现该错误，可执行：
+如果文件被编辑器重新保存后再次出现该错误，在项目根目录执行：
 
 ```powershell
-$path = "C:\Repository\Private\start.cmd"
+$path = ".\start.cmd"
 $content = [IO.File]::ReadAllText($path) -replace "`r?`n", "`r`n"
 [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
 ```
@@ -70,8 +70,8 @@ $content = [IO.File]::ReadAllText($path) -replace "`r?`n", "`r`n"
 脚本会依次检查：
 
 - `PATH` 中的 `node`；
-- `C:\Program Files\nodejs\node.exe`；
-- `C:\Program Files\nvmnode\node.exe`；
+- `%ProgramFiles%\nodejs\node.exe`；
+- `%ProgramFiles%\nvmnode\node.exe`；
 - `%LocalAppData%\Programs\nodejs\node.exe`。
 
 如果都不存在，请安装 Node.js 18 或更高版本。
@@ -92,7 +92,7 @@ Git 发现仓库所有者与当前 Windows 账号不同。GitDeck 导入和后�
 常见原因：
 
 - 存在无法访问的 `.git/index.lock`；
-- 服务运行在不能写当前工作区外部的沙箱中；
+- 写入目标跑到了 `<repo>` 之外，被沙箱拦截；
 - 另一个 Git 进程正在占用索引锁。
 
 处理：
@@ -161,8 +161,8 @@ Git 发现仓库所有者与当前 Windows 账号不同。GitDeck 导入和后�
 - 确认安装的是 TortoiseGit，而不是只安装 TortoiseSVN。
 - 需要存在 `TortoiseGitProc.exe`。
 - 常见位置：
-  - `C:\Program Files\TortoiseGit\bin\TortoiseGitProc.exe`
-  - `C:\Program Files (x86)\TortoiseGit\bin\TortoiseGitProc.exe`
+  - `%ProgramFiles%\TortoiseGit\bin\TortoiseGitProc.exe`
+  - `%ProgramFiles(x86)%\TortoiseGit\bin\TortoiseGitProc.exe`
 - GitDeck 使用 `/command:log /path:<仓库>` 打开日志界面。
 - 没有安装时，接口会提示“未找到 TortoiseGitProc.exe”。
 

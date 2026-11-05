@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check:docs": "node tools/check-docs.js"
+    "check:docs": "node tools/check-docs.js",
+    "clean:scratch": "node tools/clean-scratch.js"
   },
   "engines": {
     "node": ">=18"

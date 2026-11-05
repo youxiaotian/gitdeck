@@ -14,6 +14,31 @@
 - 已知限制：
 ```
 
+## 2026-11-05 - 文档路径统一为 `<repo>` 相对基准
+
+- 目标：清除文档里所有机器专属固定目录，把开发、测试、验证、清理的目录全部收敛到当前 git 目录内，避免照文档跑到工作区外触发权限确认。
+- 改动：
+  - 根 `AGENTS.md`、`docs/README.md`、根 `README.md`、`docs/API.md` 定义 `<repo>` = 当前 Git 仓库根目录，所有 `./`、`data/`、`.workbuddy/scratch/`、`tools/`、`tests/` 相对它解析。
+  - 操作指令去掉盘符：`docs/DEVELOPMENT.md` 的启动方式改为双击 `.\start.cmd`；`docs/TROUBLESHOOTING.md` 的日志读取改为 `Get-Content .\data\server.log`、CRLF 修复脚本改为相对路径；Node / TortoiseGit 安装位置改用系统环境变量表达。
+  - 示例数据去固定路径：`docs/API.md`（4 处）与 `docs/DATA-MODEL.md`（1 处）里的仓库路径、扫描根目录、目录浏览路径统一写成 `<repo>/.workbuddy/scratch/...` 占位，并说明真实运行时展开为绝对路径。
+  - 删掉所有「到当前工作区之外验证」的措辞：`AGENTS.md`、`docs/AGENT-GUIDE.md`、`docs/DEVELOPMENT.md`、`docs/TESTING.md`、`docs/TROUBLESHOOTING.md` 明确验证一律在 `<repo>/.workbuddy/scratch/` 内；历史描述也去掉固定盘符。
+- 数据/API 影响：无产品代码、接口或数据结构变化；`<repo>` 仅用于文档示例，运行时仍按 `docs/SECURITY.md` 校验真实路径。
+- 验证：`node tools/check-docs.js` 通过；交付文档复扫无盘符路径、无越界操作指令；`node --test` 23/23。
+- 已知限制：产品 UI 里的仓库路径输入占位符、Windows 路径解析单测里的假路径，都是给用户看或纯字符串断言，不是工作目录，保留。
+
+## 2026-11-05 - 建立 AI 临时产物沙盒，减少权限确认打断
+
+- 目标：把 AI 工作产生的测试仓库、探针脚本、截图等临时产物收拢到工作区内的单一目录，清理时不再反复触发授权确认，且不需要开启「允许完全访问」。
+- 根因：默认权限按「路径 + 操作类型 + 命令」三重判定。`docs/TESTING.md` 与 `docs/AGENT-GUIDE.md` 原约定把测试仓库放在 `<repo>` 之外的父目录，清理又用递归通配；项目根还散落 `.tmp-*` / `.ui-*` / `.chrome-*`。当前 `settings.json` 中工作区 `.` 的读/写/删本来就是 allow，真正挡路的是越界与高危动作。
+- 改动：
+  - 新增 `.workbuddy/scratch/` 作为唯一临时目录（已被 `.gitignore` 忽略）。
+  - 新增 `tools/clean-scratch.js`：路径由 `__dirname` 推导、不接受路径参数；`--new` 建唯一目录、`--dry-run` 预览、`--older-than` / `--keep`；只删除沙盒第一层条目，跳过符号链接与 `.gitkeep`，用 `fs.rm` 带重试删除。注册为 `npm run clean:scratch`。
+  - `tests/api.test.js` 的 fixture 从项目根 `.tmp-api-test-*` 和系统 `os.tmpdir()` 改到沙盒内。
+  - 根 `AGENTS.md`、`docs/TESTING.md`、`docs/AGENT-GUIDE.md` 同步新约定，明确 `data/`、`.workbuddy/memory/` 永不清理；workspace `MEMORY.md` 记录长期约定。
+- 数据/API 影响：无产品代码、接口或数据结构变化。
+- 验证：沙盒内创建 → `--dry-run` → 清理 → `.gitkeep` 保留、`data/` 未动，全程无授权弹窗；`node --test` 23/23 通过；`node tools/check-docs.js` 通过；测试后残留的 `api-test-*` 目录用清理脚本一次收净。
+- 已知限制：清理命令本身仍属于「执行脚本命令」，若命令安全规则未放行仍需确认一次；可在安全中心把 `npm run clean:scratch` 加入命令白名单，或首次弹窗时选「不再询问」。灾难性命令（如 `rm -rf /`）在任何模式下都会强制确认。
+
 ## 2026-11-05 - 目录选择器支持多选，一次添加多个仓库
 
 - 目标：在「添加 Git 仓库 → 选择目录」里勾选多个仓库目录，一次性加入当前工作区；扫描目录的目录选择仍保持单选。

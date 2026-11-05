@@ -20,9 +20,9 @@ node server.js
 `start.cmd` 必须保持 CRLF 换行。仓库通过 `.gitattributes` 固定了
 `*.cmd text eol=crlf`，不要用会强制 LF 的编辑器保存它。
 
-独立运行方式：
+独立运行方式（在项目根目录 `<repo>` 下执行）：
 
-1. 双击 `C:\Repository\Private\start.cmd`；
+1. 双击当前目录下的 `.\start.cmd`；
 2. 保持弹出的命令行窗口开启；
 3. 浏览器会自动打开；
 4. 关闭命令行窗口或按 `Ctrl+C` 停止服务。
@@ -121,15 +121,19 @@ node tools/check-docs.js
 7. 检查桌面和窄屏。
 8. 更新 `docs/UI-MAP.md` 和 `docs/FEATURES.md`。
 
-## 在当前工作区之外操作
+## 目录边界（一律在当前 git 目录内）
 
-GitDeck 可能管理其他磁盘目录。Codex 沙箱可能阻止写入，即使用户正常 Windows 账号拥有权限。最终验证写入动作时，应使用正常本地权限启动服务。不要通过修改仓库 ACL 或全局关闭 Git 安全目录检查来绕过沙箱限制。
+所有开发、测试、浏览器验证和清理都在 `<repo>` 内完成，不引用任何机器专属的固定目录。GitDeck 产品可以管理 `<repo>` 之外的用户仓库，但那是产品功能，不是开发者与 AI 的工作目录。
+
+- 临时仓库、Chrome profile、截图、探针脚本一律放 `<repo>/.workbuddy/scratch/`。
+- 用 `node tools/clean-scratch.js --new <prefix>` 创建，用 `node tools/clean-scratch.js` 清理，禁止 `rm -rf` 与通配符批量删除。
+- 不要通过修改仓库 ACL 或全局关闭 Git 安全目录检查来绕过沙箱限制。
 
 ## 开发中的数据安全
 
-- 能通过临时工作区测试时，不要直接编辑 `data/repositories.json` 伪造数据。
-- 测试仓库使用被 `.gitignore` 忽略的临时名称。
-- 浏览器自动化结束后清理测试工作区、仓库元数据和目录。
+- 能用 `<repo>/.workbuddy/scratch/` 里的临时仓库测试时，不要直接编辑 `data/repositories.json` 伪造数据。
+- 临时目录已被 `.gitignore` 忽略，不要在项目根另建临时目录。
+- 浏览器自动化结束后用 `node tools/clean-scratch.js` 清理测试元数据、仓库和目录。
 - 不得影响用户现有工作区和业务仓库。
 
 ## 代码职责表

@@ -1,5 +1,9 @@
 # 数据模型
 
+## 路径基准
+
+本文示例里的 `<repo>` 指当前 Git 仓库根目录，所有路径相对它解析；真实运行时展开为绝对路径。完整约定见根 `AGENTS.md`。临时仓库与验证目录固定为 `<repo>/.workbuddy/scratch/`。
+
 ## 持久化文件
 
 GitDeck 的工作区和仓库元数据保存在：
@@ -31,7 +35,7 @@ data/repositories.json
     {
       "id": "368a329adeae",
       "name": "AgisoCodes",
-      "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
+      "path": "<repo>/.workbuddy/scratch/demo-repository",
       "workspaceIds": ["ws_99faf5452a3f", "workspace-default"],
       "addedAt": "2026-10-26T07:51:09.563Z",
       "orders": { "ws_99faf5452a3f": 0, "workspace-default": 3 }

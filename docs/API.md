@@ -1,5 +1,9 @@
 # 本地 HTTP API
 
+## 路径基准
+
+本文所有路径相对当前 Git 仓库根目录 `<repo>`，完整约定见根 `AGENTS.md`。JSON 示例中的 `<repo>/...` 是占位写法，真实请求时展开为本机绝对路径；**开发、测试、目录浏览验证一律在 `<repo>` 内完成**，临时目录固定为 `<repo>/.workbuddy/scratch/`。
+
 ## 通用约定
 
 - 基础地址：`http://127.0.0.1:<端口>`。
@@ -42,7 +46,7 @@
     {
       "id": "368a329adeae",
       "name": "AgisoCodes",
-      "path": "C:\\Repository\\AgisoProjects\\AgisoCodes",
+      "path": "<repo>/.workbuddy/scratch/demo-repository",
       "workspaceIds": ["workspace-default", "ws_1234567890ab"],
       "addedAt": "2026-10-26T07:51:09.563Z",
       "orders": { "workspace-default": 0, "ws_1234567890ab": 2 }
@@ -118,7 +122,7 @@
 
 ```json
 {
-  "path": "C:\\Repository\\Project",
+  "path": "<repo>/.workbuddy/scratch/demo-repository",
   "workspaceId": "ws_1234567890ab"
 }
 ```
@@ -181,7 +185,7 @@
 扫描目录中的 Git 仓库。
 
 ```json
-{ "root": "C:\\Repository", "depth": 3 }
+{ "root": "<repo>/.workbuddy/scratch", "depth": 3 }
 ```
 
 深度会限制在 `1..6`。
@@ -191,7 +195,7 @@
 为内置目录选择器返回目录信息。
 
 ```json
-{ "path": "C:\\Repository" }
+{ "path": "<repo>/.workbuddy/scratch" }
 ```
 
 响应包含 `currentPath`、`parentPath`、`directories`、`roots`、`quickPaths` 和 `isRepository`。
