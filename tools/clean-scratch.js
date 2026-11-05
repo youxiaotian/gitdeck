@@ -71,7 +71,10 @@ function samePath(a, b) {
 
 function assertBoundary() {
   const realRoot = fs.realpathSync(ROOT);
-  const realWorkbuddy = fs.realpathSync(path.join(ROOT, '.workbuddy'));
+  const workbuddy = path.join(ROOT, '.workbuddy');
+  // .workbuddy/ 被 .gitignore 忽略，全新 clone 里不存在；先建好再校验真实路径。
+  fs.mkdirSync(workbuddy, { recursive: true });
+  const realWorkbuddy = fs.realpathSync(workbuddy);
   if (!samePath(realWorkbuddy, path.join(realRoot, '.workbuddy'))) {
     throw new Error('.workbuddy 目录解析到了工作区之外，拒绝执行');
   }

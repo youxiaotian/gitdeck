@@ -14,6 +14,13 @@
 - 已知限制：
 ```
 
+## 2026-11-05 - 修复沙盒脚本在全新 clone 下不可用
+
+- 根因：`.workbuddy/` 被 `.gitignore` 忽略，clone 后该目录不存在；`tools/clean-scratch.js` 的 `assertBoundary()` 无条件对 `<repo>/.workbuddy` 执行 `realpathSync()`，直接抛 ENOENT，导致 `--new` / `--dry-run` / 清理全部不可用。
+- 修复：边界校验前用 `fs.mkdirSync(workbuddy, { recursive: true })` 建好目录再做真实路径比对；符号链接指向外部仍会被 `samePath()` 拦下，安全边界不变。
+- 验证：在 `<repo>/.workbuddy/scratch/` 内复制脚本模拟无 `.workbuddy` 的干净 clone，`--new` → `--dry-run` → 清理全部成功；当前环境回归、`node --test` 23/23、`node tools/check-docs.js` 通过，探针目录已由清理脚本收净。
+- 数据/API 影响：无。
+
 ## 2026-11-05 - 文档路径统一为 `<repo>` 相对基准
 
 - 目标：清除文档里所有机器专属固定目录，把开发、测试、验证、清理的目录全部收敛到当前 git 目录内，避免照文档跑到工作区外触发权限确认。
