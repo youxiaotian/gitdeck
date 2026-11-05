@@ -132,3 +132,48 @@ test("目录选择器滚动不再每帧写 DOM、不再做全屏模糊与整页�
   assert.match(list, /contain: layout paint/, "列表要把重绘限制在自身");
   assert.match(list, /overscroll-behavior: contain/, "要阻止滚动链穿透");
 });
+
+test("目录选择器多选批量添加：跨目录保留与增量更新", async () => {
+  const [app, css] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "styles.css"), "utf8")
+  ]);
+  assert.match(app, /multiple: action === "browse"/,
+    "只有添加仓库启用多选，扫描目录保持单选");
+  assert.match(app, /directorySelected: new Set\(\)/, "选择集要跨目录保留");
+  assert.match(app, /data-directory-check=/, "每个目录行要有复选框");
+  assert.match(app, /directoryMultiple \? "add-selected" : "select"/,
+    "底部主按钮在多选模式要指向批量添加动作");
+  assert.match(app, /action === "add-selected"/, "要有批量添加的动作分发");
+  assert.match(app, /MAX_DIRECTORY_BATCH_ADD = 50/, "批量添加要有上限保护");
+  assert.match(app, /failures\.push/, "单个仓库失败不能中断其余仓库");
+
+  const open = app.slice(
+    app.indexOf("function openDirectoryPicker("),
+    app.indexOf("async function loadDirectory(")
+  );
+  assert.match(open, /directorySelected\.clear\(\)/, "新开选择器要重置选择集");
+  const load = app.slice(
+    app.indexOf("async function loadDirectory("),
+    app.indexOf("function renderDirectoryPicker(")
+  );
+  assert.doesNotMatch(load, /directorySelected\.clear\(\)/,
+    "切换目录不能清空已勾选的仓库");
+  const close = app.slice(
+    app.indexOf("function closeDirectoryPicker("),
+    app.indexOf("async function addRepositoryFromModal(")
+  );
+  assert.match(close, /directorySelected\.clear\(\)/, "关闭选择器要清空选择集");
+
+  assert.match(app, /function updateDirectorySelectionUI\(/);
+  assert.match(app, /function syncDirectoryRowChecks\(/);
+  const updater = app.slice(
+    app.indexOf("function updateDirectorySelectionUI("),
+    app.indexOf("function selectAllVisibleRepositories(")
+  );
+  assert.doesNotMatch(updater, /directoryPickerBody\.innerHTML/,
+    "勾选必须走增量 DOM 更新，不能重建列表破坏滚动性能");
+  assert.match(css, /\.directory-selection-bar \{/);
+  assert.match(css, /\.directory-check input \{/);
+  assert.match(css, /accent-color: var\(--green\)/);
+});

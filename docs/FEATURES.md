@@ -25,6 +25,7 @@
 
 - 手动输入路径添加仓库。
 - 使用内置目录浏览器选择目录；列表滚动保持流畅（遮罩不做全屏模糊、滚动时不写 DOM、选目录期间暂停后台整页刷新）。
+- 目录浏览器支持**多选批量添加**：勾选多个 Git 仓库后一次加入当前工作区；可「全选 Git 仓库」、清空、把当前目录加入选择，并且切换目录后已勾选的仓库仍保留。扫描目录的目录选择仍为单选。
 - 扫描上级目录并批量选择发现的仓库。
 - 新仓库加入当前工作区。
 
@@ -34,6 +35,7 @@
 - `discoverRepositories()` 递归扫描，并跳过常见构建与依赖目录。
 - `listDirectories()` 为内置目录选择器提供数据。
 - 前端：`openAddRepositoryModal()`、`openScanModal()`、`openDirectoryPicker()`、`renderDirectoryPicker()`。
+- 多选：`state.directoryMultiple` / `directorySelected`（`Set`，跨目录保留）、`handleDirectoryCheck()`、`updateDirectorySelectionUI()`、`syncDirectoryRowChecks()`、`selectAllVisibleRepositories()`、`addSelectedDirectories()`；批量添加复用 `POST /api/repositories` 串行落盘，单次上限 50 个，失败项留在选择集里可重试。
 - 滚动性能：`public/styles.css` 的 `.directory-list`（`contain: layout paint`、`overscroll-behavior: contain`）与 `.directory-backdrop`（无 `backdrop-filter`）；`hideContextMenu()` 用 passive 监听且菜单已隐藏时不写 DOM；自动刷新在目录选择器打开时跳过。
 
 ## 工作区仓库维护

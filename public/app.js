@@ -65,6 +65,9 @@
     directoryListing: null,
     directoryRequest: 0,
     directoryLoading: false,
+    // 多选只在「添加仓库」的目录选择器里启用；Set 存选中路径，跨目录保留。
+    directoryMultiple: false,
+    directorySelected: new Set(),
     menuRepositoryId: null,
     detailRequest: 0,
     previousFocus: null,
@@ -424,6 +427,14 @@
     elements.directoryPickerBackdrop.addEventListener("click", (event) => {
       if (event.target === elements.directoryPickerBackdrop) {
         closeDirectoryPicker();
+      }
+    });
+    // 目录列表每次翻页都会重建，勾选走容器上的委托；只改内存与少量节点，
+    // 不重渲染整个面板，避免正在滚动时重排掉帧。
+    elements.directoryPickerBody.addEventListener("change", (event) => {
+      const input = event.target.closest?.("input[data-directory-check]");
+      if (input) {
+        handleDirectoryCheck(input);
       }
     });
     elements.contextMenu.addEventListener("click", handleContextMenuClick);
@@ -4271,7 +4282,8 @@
     if (action === "browse" || action === "browse-scan") {
       openDirectoryPicker(
         action === "browse" ? "addRepositoryPath" : "scanRoot",
-        action === "browse" ? "选择仓库目录" : "选择扫描目录"
+        action === "browse" ? "选择仓库目录" : "选择扫描目录",
+        { multiple: action === "browse" }
       );
       return;
     }
@@ -4313,8 +4325,13 @@
     }
   }
 
-  function openDirectoryPicker(targetInputId, title) {
+  // 一次批量添加的上限：避免「全选」把 500 个目录同时灌进 git 进程。
+  const MAX_DIRECTORY_BATCH_ADD = 50;
+
+  function openDirectoryPicker(targetInputId, title, options = {}) {
     state.directoryTargetInputId = targetInputId;
+    state.directoryMultiple = Boolean(options.multiple);
+    state.directorySelected.clear();
     state.directoryCurrentPath = "";
     state.directoryListing = null;
     state.directoryRequest += 1;
@@ -4334,8 +4351,15 @@
       </div>
     `;
     elements.directoryPickerFooter.innerHTML = `
+      ${
+        state.directoryMultiple
+          ? `<span class="directory-selection-path">已选 ${state.directorySelected.size} 个仓库</span>`
+          : ""
+      }
       <button class="button button-quiet" type="button" data-directory-action="close">取消</button>
-      <button class="button button-primary" type="button" disabled>选择当前目录</button>
+      <button class="button button-primary" type="button" disabled>
+        ${state.directoryMultiple ? "添加选中仓库" : "选择当前目录"}
+      </button>
     `;
 
     try {
@@ -4407,23 +4431,69 @@
       )
       .join("");
     const directories = listing.directories
-      .map(
-        (directory) => `
-          <button
-            class="directory-row"
-            type="button"
-            data-directory-action="open"
-            data-directory-path="${escapeHtml(directory.path)}"
-            title="${escapeHtml(directory.path)}"
-          >
-            <span class="directory-row-icon">${icon("folder")}</span>
-            <span class="directory-row-name">${escapeHtml(directory.name)}</span>
-            ${directory.isRepository ? '<span class="directory-repo-badge">Git 仓库</span>' : ""}
-            ${icon("chevron-right", "directory-chevron")}
-          </button>
-        `
-      )
+      .map((directory) => {
+        const selected = state.directorySelected.has(directory.path);
+        // button 内不能嵌套交互元素，所以复选框是行内的兄弟节点，
+        // 只有右侧的「进入目录」按钮带 data-directory-action。
+        const checkbox = state.directoryMultiple
+          ? `
+            <label
+              class="directory-check ${directory.isRepository ? "" : "is-disabled"}"
+              title="${directory.isRepository ? "选择此仓库" : "不是 Git 仓库，可进入后继续选择"}"
+            >
+              <input
+                type="checkbox"
+                data-directory-check="${escapeHtml(directory.path)}"
+                ${selected ? "checked" : ""}
+                ${directory.isRepository ? "" : "disabled"}
+                aria-label="选择 ${escapeHtml(directory.name)}"
+              />
+            </label>
+          `
+          : "";
+        return `
+          <div class="directory-row${selected ? " selected" : ""}">
+            ${checkbox}
+            <button
+              class="directory-row-open"
+              type="button"
+              data-directory-action="open"
+              data-directory-path="${escapeHtml(directory.path)}"
+              title="${escapeHtml(directory.path)}"
+            >
+              <span class="directory-row-icon">${icon("folder")}</span>
+              <span class="directory-row-name">${escapeHtml(directory.name)}</span>
+              ${directory.isRepository ? '<span class="directory-repo-badge">Git 仓库</span>' : ""}
+              ${icon("chevron-right", "directory-chevron")}
+            </button>
+          </div>
+        `;
+      })
       .join("");
+    const selectionBar = state.directoryMultiple
+      ? `
+        <div class="directory-selection-bar">
+          <span class="directory-selection-count" id="directorySelectionCount">
+            已选 ${state.directorySelected.size} 个仓库
+          </span>
+          <button type="button" data-directory-action="select-all">全选 Git 仓库</button>
+          ${
+            listing.isRepository
+              ? `<button type="button" data-directory-action="select-current">加入当前目录</button>`
+              : ""
+          }
+          <button
+            id="directoryClearButton"
+            type="button"
+            data-directory-action="clear-selection"
+            ${state.directorySelected.size ? "" : "disabled"}
+          >清空</button>
+        </div>
+      `
+      : "";
+    const helpText = state.directoryMultiple
+      ? "勾选多个 Git 仓库可一次添加；点击文件夹继续进入，切换目录后已勾选的仓库仍会保留。"
+      : "点击文件夹继续进入，或直接选择当前目录。权限不足的目录会显示错误，不会卡住页面。";
 
     elements.directoryPickerBody.innerHTML = `
       <div class="directory-path-row">
@@ -4454,21 +4524,38 @@
         ${listing.isRepository ? '<span class="directory-current-repo">当前目录是 Git 仓库</span>' : ""}
       </div>
       <div class="directory-quick-list">${quickPaths}</div>
+      ${selectionBar}
       <div class="directory-list" role="list">
         ${
           directories ||
           `<div class="directory-empty">${icon("folder")}<span>这里没有子目录</span></div>`
         }
       </div>
-      <p class="directory-help">点击文件夹继续进入，或直接选择当前目录。权限不足的目录会显示错误，不会卡住页面。</p>
+      <p class="directory-help">${helpText}</p>
     `;
+    const selectedCount = state.directorySelected.size;
     elements.directoryPickerFooter.innerHTML = `
       <span class="directory-selection-path" title="${escapeHtml(listing.currentPath)}">
         ${escapeHtml(listing.currentPath)}
       </span>
       <button class="button button-quiet" type="button" data-directory-action="close">取消</button>
-      <button class="button button-primary" type="button" data-directory-action="select">
-        ${icon("check")}选择当前目录
+      ${
+        state.directoryMultiple
+          ? `<button class="button button-secondary" type="button" data-directory-action="select">选择当前目录</button>`
+          : ""
+      }
+      <button
+        class="button button-primary"
+        id="directoryPrimaryButton"
+        type="button"
+        data-directory-action="${state.directoryMultiple ? "add-selected" : "select"}"
+        ${state.directoryMultiple && !selectedCount ? "disabled" : ""}
+      >
+        ${icon(state.directoryMultiple ? "plus" : "check")}${
+          state.directoryMultiple
+            ? directoryPrimaryLabel(selectedCount)
+            : "选择当前目录"
+        }
       </button>
     `;
     window.requestAnimationFrame(() => {
@@ -4499,7 +4586,154 @@
     }
     if (action === "select") {
       chooseCurrentDirectory();
+      return;
     }
+    if (action === "select-all") {
+      selectAllVisibleRepositories();
+      return;
+    }
+    if (action === "select-current") {
+      selectCurrentDirectoryAsRepository();
+      return;
+    }
+    if (action === "clear-selection") {
+      state.directorySelected.clear();
+      syncDirectoryRowChecks();
+      updateDirectorySelectionUI();
+      return;
+    }
+    if (action === "add-selected") {
+      addSelectedDirectories(button);
+    }
+  }
+
+  function directoryPrimaryLabel(count) {
+    return count ? `添加 ${count} 个仓库` : "添加选中仓库";
+  }
+
+  function handleDirectoryCheck(input) {
+    const directoryPath = input.dataset.directoryCheck;
+    if (!directoryPath) {
+      return;
+    }
+    if (input.checked) {
+      state.directorySelected.add(directoryPath);
+    } else {
+      state.directorySelected.delete(directoryPath);
+    }
+    input.closest(".directory-row")?.classList.toggle("selected", input.checked);
+    // 只更新计数与按钮文案，不重建列表（滚动位置与性能都要保住）。
+    updateDirectorySelectionUI();
+  }
+
+  function syncDirectoryRowChecks() {
+    for (const input of elements.directoryPickerBody.querySelectorAll(
+      "input[data-directory-check]"
+    )) {
+      const checked = state.directorySelected.has(input.dataset.directoryCheck);
+      if (input.checked !== checked) {
+        input.checked = checked;
+      }
+      input.closest(".directory-row")?.classList.toggle("selected", checked);
+    }
+  }
+
+  function updateDirectorySelectionUI() {
+    if (!state.directoryMultiple) {
+      return;
+    }
+    const count = state.directorySelected.size;
+    const counter = document.getElementById("directorySelectionCount");
+    if (counter) {
+      counter.textContent = `已选 ${count} 个仓库`;
+    }
+    const primary = document.getElementById("directoryPrimaryButton");
+    if (primary) {
+      primary.disabled = count === 0;
+      primary.innerHTML = `${icon("plus")}${directoryPrimaryLabel(count)}`;
+    }
+    const clear = document.getElementById("directoryClearButton");
+    if (clear) {
+      clear.disabled = count === 0;
+    }
+  }
+
+  function selectAllVisibleRepositories() {
+    for (const input of elements.directoryPickerBody.querySelectorAll(
+      "input[data-directory-check]:not(:disabled)"
+    )) {
+      state.directorySelected.add(input.dataset.directoryCheck);
+    }
+    syncDirectoryRowChecks();
+    updateDirectorySelectionUI();
+  }
+
+  function selectCurrentDirectoryAsRepository() {
+    if (!state.directoryListing?.isRepository || !state.directoryCurrentPath) {
+      return;
+    }
+    state.directorySelected.add(state.directoryCurrentPath);
+    updateDirectorySelectionUI();
+  }
+
+  async function addSelectedDirectories(button) {
+    const paths = [...state.directorySelected];
+    if (!paths.length) {
+      showToast("没有选择仓库", "先勾选至少一个 Git 仓库目录。", "warning");
+      return;
+    }
+    if (paths.length > MAX_DIRECTORY_BATCH_ADD) {
+      showToast(
+        "一次最多添加 50 个仓库",
+        `当前选了 ${paths.length} 个，请分批添加。`,
+        "warning"
+      );
+      return;
+    }
+
+    await withModalButton(button, async () => {
+      const added = [];
+      const failures = [];
+      for (const repositoryPath of paths) {
+        try {
+          const result = await api("/api/repositories", {
+            method: "POST",
+            body: {
+              path: repositoryPath,
+              workspaceId: state.activeWorkspaceId
+            }
+          });
+          upsertRepository(result.repository);
+          added.push(result.repository);
+          state.directorySelected.delete(repositoryPath);
+        } catch (error) {
+          failures.push(`${repositoryPath}：${error.message}`);
+        }
+      }
+
+      if (failures.length) {
+        // 失败项留在选择集里，方便修好路径后直接重试。
+        syncDirectoryRowChecks();
+        updateDirectorySelectionUI();
+        showToast(
+          "部分仓库添加失败",
+          `成功 ${added.length} 个，失败 ${failures.length} 个。${failures[0]}`,
+          "error"
+        );
+      } else {
+        closeDirectoryPicker();
+        closeModal();
+        showToast(
+          "仓库已加入",
+          `已添加 ${added.length} 个仓库，可多选后批量同步。`,
+          "success"
+        );
+      }
+      if (added.length) {
+        await refreshAllSummaries({ quiet: true });
+        await selectRepository(added[0].id);
+      }
+    });
   }
 
   function chooseCurrentDirectory() {
@@ -4524,6 +4758,8 @@
     state.directoryCurrentPath = "";
     state.directoryListing = null;
     state.directoryLoading = false;
+    state.directoryMultiple = false;
+    state.directorySelected.clear();
   }
 
   async function addRepositoryFromModal(button) {

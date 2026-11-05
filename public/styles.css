@@ -3614,18 +3614,47 @@ body.modal-open {
   overscroll-behavior: contain;
 }
 
+.directory-selection-bar {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 7px;
+  padding: 0 2px;
+}
+
+.directory-selection-count {
+  margin-right: auto;
+  color: var(--green-deep);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.directory-selection-bar button {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.directory-selection-bar button:hover:not(:disabled) {
+  background: #e9efe9;
+  color: var(--green-deep);
+}
+
 .directory-row {
-  display: grid;
+  display: flex;
   width: 100%;
   min-height: 39px;
-  grid-template-columns: 22px minmax(0, 1fr) auto 16px;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid #efede6;
   background: transparent;
   color: var(--ink);
-  text-align: left;
 }
 
 .directory-row:last-child {
@@ -3634,6 +3663,52 @@ body.modal-open {
 
 .directory-row:hover {
   background: #f4f8f5;
+}
+
+.directory-row.selected,
+.directory-row.selected:hover {
+  background: var(--green-soft);
+}
+
+.directory-check {
+  display: grid;
+  width: 16px;
+  height: 22px;
+  flex: 0 0 16px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.directory-check input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
+.directory-check.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.directory-check.is-disabled input {
+  cursor: not-allowed;
+}
+
+.directory-row-open {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 27px;
+  flex: 1;
+  grid-template-columns: 22px minmax(0, 1fr) auto 16px;
+  gap: 8px;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .directory-row-icon {

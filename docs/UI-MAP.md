@@ -48,11 +48,13 @@
 | 分支删除弹窗 | `[data-modal-action="delete-branches"]`、`#forceDeleteBranches` |
 | 分栏拖动 | `[data-resizer="sidebar|filetree|context"]` |
 | 主弹窗 | `#modalBackdrop`、`#modalPanel` |
-| 目录选择器 | `#directoryPickerBackdrop` |
+| 目录选择器 | `#directoryPickerBackdrop`、`.directory-selection-bar`、`input[data-directory-check]`、`#directoryPrimaryButton` |
 | 右键菜单 | `#contextMenu` |
 | 提示 | `#toastRegion` |
 
 目录选择器列表滚动期间保持轻量：`hideContextMenu()` 在菜单已隐藏时不再写 `hidden` 属性，`window` 的滚动监听使用 `passive`，自动刷新定时器在 `#directoryPickerBackdrop` 可见时跳过整页 `render()`；样式上 `.directory-list` 使用 `contain: layout paint` 与 `overscroll-behavior: contain`，`.directory-backdrop` 不使用全屏 `backdrop-filter`。
+
+「添加仓库」场景（`openDirectoryPicker(..., { multiple: true })`）启用多选：目录行结构是 `.directory-row` 容器 + 独立复选框 `label.directory-check` + `.directory-row-open` 进入按钮（按钮内不能嵌套交互元素）。只有 `isRepository` 的行可勾选；选择集 `state.directorySelected` 是 `Set`，翻页/进入子目录不清空，`renderDirectoryPicker()` 回填 `checked`，勾选与计数更新走 `updateDirectorySelectionUI()` 的增量写入，不重建 `.directory-list`。`data-directory-action` 新增 `select-all` / `select-current` / `clear-selection` / `add-selected`；扫描目录场景不带 `multiple`，仍是单选并回填路径输入框。
 
 ## 前端状态分组
 

@@ -14,6 +14,19 @@
 - 已知限制：
 ```
 
+## 2026-11-05 - 目录选择器支持多选，一次添加多个仓库
+
+- 目标：在「添加 Git 仓库 → 选择目录」里勾选多个仓库目录，一次性加入当前工作区；扫描目录的目录选择仍保持单选。
+- 改动：
+  - `state.directoryMultiple` / `directorySelected`（`Set`）：选择集跨目录保留，打开/关闭选择器时重置，`renderDirectoryPicker()` 回填 `checked`。
+  - 目录行从单个 `<button>` 改为 `.directory-row` 容器 + 独立复选框 + `.directory-row-open` 进入按钮；只有 `isRepository` 行可勾选，普通目录禁用并提示可进入后继续选择。
+  - 新增选择条：已选计数、「全选 Git 仓库」、「加入当前目录」（当前目录本身是仓库时）、「清空」；底部主按钮显示「添加 N 个仓库」，同时保留「选择当前目录」走原输入框流程。
+  - `addSelectedDirectories()` 复用 `POST /api/repositories` 串行落盘，单次上限 50 个；部分失败时成功项入库、失败项留在选择集，可修好后直接重试。
+  - 勾选/全选/清空只做增量 DOM 更新（计数、按钮文案、行 `class`），不重建 `.directory-list`，保留上一轮的滚动性能修复。
+- 数据/API 影响：无新增接口，数据结构不变；只向当前工作区新增仓库条目与 `orders`。
+- 验证：CDP 真实点击 16/16 通过——多选渲染、仅 Git 仓库可勾选、计数与按钮实时更新、清空/全选、跨目录保留与回填、一次落盘 4 个仓库且排序连续、前端无需刷新即显示、扫描目录保持单选、零 console error；截图确认复选框/选择条/底部按钮排版正常；`MutationObserver` 确认勾选仅 2 次 DOM 写入且列表节点未重建。`tests/project-files.test.js` 新增源码回归断言。
+- 已知限制：一次最多 50 个；目录列表本身仍受 `/api/directories/list` 的 500 条上限约束。
+
 ## 2026-11-05 - 修复添加仓库时目录选择器滚动卡顿
 
 - 根因（真实浏览器滚轮 + DevTools 探针确认）：`window` 上捕获阶段的 `scroll` 监听每帧调用 `hideContextMenu()`，无条件写 `elements.contextMenu.hidden = true`；实测 40 次滚动事件对应 40 次 `hidden` 属性写入，反复触发样式失效。叠加全屏 `backdrop-filter: blur(2px)` 遮罩、滚动链穿透、以及每 20 秒一次 `refreshAllSummaries()` → `render()` 整页重绘，滚轮明显不跟手。
