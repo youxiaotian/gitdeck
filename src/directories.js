@@ -208,11 +208,60 @@ async function listQuickPaths(currentPath) {
   return result;
 }
 
+// 列出仓库目录下所有 Visual Studio 解决方案文件（*.sln）。
+// 与 git 状态无关：直接扫描文件系统，未改动的文件也会返回。
+// 跳过 .git 内部目录，限制扫描规模以防超大仓库卡死。
+async function listSolutions(repository) {
+  const root = repository.path;
+  const solutions = [];
+  const MAX_SOLUTIONS = 500;
+  const MAX_ENTRIES = 20000;
+  const MAX_DEPTH = 8;
+  let scanned = 0;
+
+  async function walk(directory, depth) {
+    if (solutions.length >= MAX_SOLUTIONS || depth > MAX_DEPTH) {
+      return;
+    }
+    const entries = await fs
+      .readdir(directory, { withFileTypes: true })
+      .catch(() => []);
+    for (const entry of entries) {
+      if (solutions.length >= MAX_SOLUTIONS) {
+        return;
+      }
+      if (entry.name === ".git") {
+        continue;
+      }
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (scanned > MAX_ENTRIES) {
+          return;
+        }
+        scanned += 1;
+        await walk(absolute, depth + 1);
+      } else if (
+        entry.isFile() &&
+        entry.name.toLowerCase().endsWith(".sln")
+      ) {
+        solutions.push(
+          path.relative(root, absolute).split(path.sep).join("/")
+        );
+      }
+    }
+  }
+
+  await walk(root, 0);
+  solutions.sort((left, right) => left.localeCompare(right, "zh-CN"));
+  return solutions;
+}
+
 module.exports = {
   discoverRepositories,
   listDirectories,
   findExistingDirectory,
   isRepositoryRoot,
   listSystemRoots,
-  listQuickPaths
+  listQuickPaths,
+  listSolutions
 };

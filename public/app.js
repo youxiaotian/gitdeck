@@ -28,6 +28,7 @@
     contextHistoryRequest: 0,
     fileFilter: "all",
     solutionFilter: false,
+    solutions: [],
     fileTreeMode: "tree",
     selectedFile: null,
     selectedFiles: new Set(),
@@ -128,6 +129,7 @@
     batchSelectionCount: document.getElementById("batchSelectionCount"),
     batchStageButton: document.getElementById("batchStageButton"),
     batchDiscardButton: document.getElementById("batchDiscardButton"),
+    batchSelectionBar: document.querySelector(".batch-selection-bar"),
     previewPath: document.getElementById("previewPath"),
     previewActions: document.getElementById("previewActions"),
     filePreview: document.getElementById("filePreview"),
@@ -1190,6 +1192,10 @@
   }
 
   function renderChanges(summary) {
+    if (state.solutionFilter) {
+      renderSolutionView();
+      return;
+    }
     const entries = collectChangedEntries(summary);
     const availablePaths = new Set(entries.map((entry) => entry.path));
     for (const selectedPath of state.selectedFiles) {
@@ -1303,25 +1309,93 @@
       );
   }
 
-  function getVisibleEntries(entries) {
-    const source =
-      entries ||
-      collectChangedEntries(
-        state.detail?.summary || {
-          staged: [],
-          unstaged: [],
-          untracked: [],
-          unmerged: []
-        }
+  function toSolutionEntry(filePath) {
+    return { path: filePath, groups: new Set(), solution: true };
+  }
+
+  // 开启解决方案过滤时，从后端扫描仓库目录下所有 .sln 文件（与 git 无关）。
+  async function fetchSolutions() {
+    if (!state.selectedId) {
+      return;
+    }
+    try {
+      const data = await api(
+        `/api/repositories/${state.selectedId}/solutions`,
+        { method: "GET" }
       );
-    return source.filter((entry) => {
-      const passesStatus =
-        state.fileFilter === "all" || entry.groups.has(state.fileFilter);
-      const passesSolution =
-        !state.solutionFilter ||
-        entry.path.toLowerCase().endsWith(".sln");
-      return passesStatus && passesSolution;
+      state.solutions = Array.isArray(data.solutions) ? data.solutions : [];
+    } catch (error) {
+      state.solutions = [];
+      showToast("读取解决方案失败", error.message, "error");
+    }
+    renderChanges(state.detail.summary);
+  }
+
+  function getVisibleEntries(entries) {
+    if (!entries) {
+      entries = state.solutionFilter
+        ? state.solutions.map(toSolutionEntry)
+        : collectChangedEntries(
+            state.detail?.summary || {
+              staged: [],
+              unstaged: [],
+              untracked: [],
+              unmerged: []
+            }
+          );
+    }
+    // 解决方案模式：与 git 状态无关，直接展示目录下所有 .sln 文件，
+    // 不再受「全部/未暂存/已暂存/未跟踪」状态筛选约束。
+    if (state.solutionFilter) {
+      return entries;
+    }
+    return entries.filter((entry) => {
+      return (
+        state.fileFilter === "all" || entry.groups.has(state.fileFilter)
+      );
     });
+  }
+
+  // 解决方案模式：直接展示仓库目录下所有 .sln 文件，与 git 状态无关。
+  function renderSolutionView() {
+    const entries = state.solutions.map(toSolutionEntry);
+    const visibleEntries = getVisibleEntries(entries);
+    elements.explorerCount.textContent = String(visibleEntries.length);
+
+    elements.fileFilterBar.querySelectorAll("[data-file-filter]").forEach(
+      (button) => button.classList.remove("active")
+    );
+
+    if (
+      !state.selectedFile ||
+      !state.solutions.includes(state.selectedFile.path)
+    ) {
+      state.selectedFile = visibleEntries.length ? visibleEntries[0] : null;
+      state.previewKey = "";
+      resetEditor();
+    }
+
+    renderFileTree(visibleEntries);
+    renderPreviewHeader();
+
+    if (state.selectedFile) {
+      elements.filePreview.innerHTML = `
+        <div class="preview-placeholder">
+          ${icon("external-link")}
+          <strong>Visual Studio 解决方案</strong>
+          <span>${escapeHtml(state.selectedFile.path)}</span>
+          <span>双击文件，或在上方点击「用 Visual Studio 打开」。</span>
+        </div>
+      `;
+    } else {
+      elements.filePreview.innerHTML = `
+        <div class="preview-placeholder">
+          ${icon("search")}
+          <strong>目录下没有 .sln 文件</strong>
+          <span>当前仓库目录中未找到任何 Visual Studio 解决方案文件。</span>
+        </div>
+      `;
+    }
   }
 
   function renderFileTree(entries) {
@@ -1384,6 +1458,12 @@
       elements.solutionFilterToggle.setAttribute(
         "aria-pressed",
         String(state.solutionFilter)
+      );
+    }
+    if (elements.changesView) {
+      elements.changesView.classList.toggle(
+        "solution-mode",
+        state.solutionFilter
       );
     }
   }
@@ -1565,6 +1645,20 @@
 
     if (!selected) {
       elements.previewActions.innerHTML = "";
+      return;
+    }
+
+    if (selected.solution) {
+      elements.previewPath.textContent = selected.path;
+      document.querySelectorAll("[data-preview-mode]").forEach((button) => {
+        button.classList.remove("active");
+        button.disabled = true;
+      });
+      elements.previewActions.innerHTML = `
+        <button class="button button-primary solution-open-button" type="button" data-preview-action="openSolution">
+          ${icon("external-link")}用 Visual Studio 打开
+        </button>
+      `;
       return;
     }
 
@@ -1838,6 +1932,19 @@
     state.editor.dirty = false;
   }
 
+  function resolveFileEntry(filePath) {
+    const entry = collectChangedEntries(state.detail.summary).find(
+      (item) => item.path === filePath
+    );
+    if (entry) {
+      return entry;
+    }
+    if (state.solutionFilter && state.solutions.includes(filePath)) {
+      return toSolutionEntry(filePath);
+    }
+    return null;
+  }
+
   function requestPreviewFile(filePath) {
     if (state.editor.dirty && state.selectedFile?.path !== filePath) {
       showConfirm({
@@ -1851,20 +1958,17 @@
         onConfirm: () => {
           state.editor.dirty = false;
           state.previewMode = "diff";
-          state.selectedFile = { path: filePath, staged: false };
+          state.selectedFile = resolveFileEntry(filePath);
           state.previewKey = "";
           renderChanges(state.detail.summary);
         }
       });
       return;
     }
-    const entry = collectChangedEntries(state.detail.summary).find(
-      (item) => item.path === filePath
-    );
-    if (!entry) {
+    state.selectedFile = resolveFileEntry(filePath);
+    if (!state.selectedFile) {
       return;
     }
-    state.selectedFile = entry;
     state.previewMode = "diff";
     state.previewKey = "";
     resetEditor();
@@ -2766,6 +2870,7 @@
     state.contextHistoryRequest += 1;
     state.fileFilter = "all";
     state.solutionFilter = false;
+    state.solutions = [];
     state.selectedFiles.clear();
     state.batchBusy = false;
     state.branchSelection.clear();
@@ -3044,7 +3149,12 @@
     const solutionFilter = event.target.closest("[data-action='toggle-solution-filter']");
     if (solutionFilter) {
       state.solutionFilter = !state.solutionFilter;
-      renderChanges(state.detail.summary);
+      if (state.solutionFilter) {
+        fetchSolutions();
+      } else {
+        state.solutions = [];
+        renderChanges(state.detail.summary);
+      }
       return;
     }
 

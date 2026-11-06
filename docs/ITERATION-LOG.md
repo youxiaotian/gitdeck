@@ -2,6 +2,15 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-06 - 修正 .sln 过滤：与 Git 无关，直接扫描目录
+
+- 目标：用户反馈开启 `.sln` 按钮后列表为空——原实现只在 Git 变更条目里筛 `.sln`，已提交/未改动的文件不显示。
+- 根因：`.sln` 过滤与 Git 状态耦合。
+- 改动：按钮开启后改为调 `GET /api/repositories/:id/solutions`（后端 `directories.listSolutions()` 递归扫描仓库目录、跳过 `.git`、返回相对路径），前端 `fetchSolutions()` → `renderSolutionView()` 直接展示目录下所有 `.sln`，不再受状态筛选约束；隐藏状态筛选条与批量暂存勾选（`changesView` 切 `solution-mode` 类）；点击/双击 `.sln` 解析走 `resolveFileEntry()`，不依赖 Git 状态；预览区仅显示「用 Visual Studio 打开」。
+- 数据/API 影响：新增仓库子路由 `solutions`；`openVisualStudio` 动作不变。
+- 验证：`node --test` 25/25（含 `listSolutions` 真实扫描单测，证明跳过 `.git`、含子目录、排除非 `.sln`），`node tools/check-docs.js` 通过，服务冒烟首页/app.js 200、`solutions` 路由无 token 返 403。
+- 已知限制：扫描带深度(8)/文件数(2万)/解数量(500)上限；非 Windows 或未装 VS 时打开动作返回明确错误。
+
 ## 模板
 
 ```markdown

@@ -59,7 +59,7 @@
 | 工作区下拉 | `renderWorkspacePicker()`、`openWorkspaceDropdown()`、`closeWorkspaceDropdown()` |
 | 主面板/仓库视图 | `renderMain()`、`renderRepositoryView()` |
 | 变更文件树/平铺 | `renderChanges()`、`renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`、`updateFileViewToggle()`、`getVisibleEntries()` |
-| .sln 过滤与用 VS 打开 | `solutionFilter` 状态、`toggle-solution-filter` 按钮、`isSolutionFile()`、`openInVisualStudio()`、`elements.fileGroups` 的 `dblclick` 监听；后端 `shell.openVisualStudio()`、`git-actions` 的 `openVisualStudio` 动作 |
+| .sln 过滤与用 VS 打开 | 与 Git 无关：按钮开启后 `fetchSolutions()` 调 `GET /api/repositories/:id/solutions` 扫描目录所有 `.sln`，经 `renderSolutionView()` 展示并隐藏状态筛选条/批量勾选；双击或预览区 `openSolution` 调 `openInVisualStudio()`；关键函数 `solutionFilter` 状态、`toggle-solution-filter`、`toSolutionEntry()`、`resolveFileEntry()`、`isSolutionFile()`、`openInVisualStudio()`、`elements.fileGroups` 的 `dblclick` 监听；后端 `directories.listSolutions()`、`shell.openVisualStudio()`、`git-actions` 的 `openVisualStudio` 动作 |
 | 文件状态 | `fileStatus()`、`collectChangedEntries()` |
 | Diff/编辑器 | `loadFilePreview()`、`renderPreviewHeader()`、`renderEditor()`、`saveEditor()`、`revertEditorChanges()` |
 | 选中提交 | `updateComposerState()`、`submitCommit()` |

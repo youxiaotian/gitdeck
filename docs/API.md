@@ -241,6 +241,14 @@
 }
 ```
 
+### `GET /api/repositories/:id/solutions`
+
+列出仓库目录下所有 Visual Studio 解决方案文件（`*.sln`），**与 Git 状态无关**——直接扫描文件系统，包括未发生改动、已提交的文件。扫描时跳过 `.git` 目录，限制深度与文件数量以防超大仓库卡死，返回相对仓库根目录的 POSIX 路径。
+
+```json
+{ "solutions": ["App.sln", "src/sub/Lib.sln"] }
+```
+
 ## Diff
 
 ### `GET /api/repositories/:id/diff?path=src/a.js&staged=0`

@@ -24,7 +24,8 @@ const {
 } = require("./workspace");
 const {
   discoverRepositories,
-  listDirectories
+  listDirectories,
+  listSolutions
 } = require("./directories");
 const {
   getCommitHistory,
@@ -178,7 +179,7 @@ async function handleApi(request, response, url) {
   }
 
   const repositoryMatch = url.pathname.match(
-    /^\/api\/repositories\/([a-f0-9]{12})(?:\/(status|detail|diff|file|history|action))?$/
+    /^\/api\/repositories\/([a-f0-9]{12})(?:\/(status|detail|diff|file|history|action|solutions))?$/
   );
   if (!repositoryMatch) {
     throw httpError(404, "接口不存在。");
@@ -196,6 +197,12 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && route === "detail") {
     const detail = await getRepositoryDetail(repository);
     sendJson(response, 200, detail);
+    return;
+  }
+
+  if (request.method === "GET" && route === "solutions") {
+    const solutions = await listSolutions(repository);
+    sendJson(response, 200, { solutions });
     return;
   }
 

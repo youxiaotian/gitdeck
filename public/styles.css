@@ -1835,6 +1835,27 @@ body.is-resizing * {
   background: #2f4fc0;
 }
 
+/* 解决方案模式：与 git 状态无关，隐藏暂存相关的批量勾选与状态筛选条 */
+.solution-mode .tree-file-check {
+  display: none;
+}
+
+.solution-mode .batch-selection-bar {
+  display: none;
+}
+
+.solution-mode .file-filter-bar {
+  display: none;
+}
+
+.solution-mode .file-explorer-heading #fileTreeTitle::after {
+  content: "（解决方案）";
+  margin-left: 6px;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .file-filter-bar {
   display: flex;
   flex-wrap: wrap;

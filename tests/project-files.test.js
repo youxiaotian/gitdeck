@@ -199,13 +199,44 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
     /state\.solutionFilter = !state\.solutionFilter/,
     "点击 .sln 按钮应切换 solutionFilter"
   );
-  // 过滤逻辑：solutionFilter 打开时只保留 .sln 文件。
+  // 过滤逻辑：解决方案模式与 git 无关，直接展示目录下所有 .sln；
+  // 普通模式仍按状态（全部/未暂存/已暂存/未跟踪）筛选。
+  assert.match(app, /function getVisibleEntries\(/, "应抽出统一的可见文件筛选函数");
   assert.match(
     app,
-    /passesSolution[\s\S]{0,120}endsWith\("\.sln"\)/,
-    "可见文件筛选必须包含 .sln 后缀判断"
+    /state\.solutionFilter[\s\S]{0,80}return entries;/,
+    "解决方案模式应直接返回所有 .sln 条目，不受 git 状态约束"
   );
-  assert.match(app, /function getVisibleEntries\(/, "应抽出统一的可见文件筛选函数");
+  assert.match(
+    app,
+    /function toSolutionEntry\(filePath\)[\s\S]{0,80}solution: true/,
+    "应把 .sln 路径包装成解决方案条目"
+  );
+  assert.match(
+    app,
+    /async function fetchSolutions\(\)[\s\S]{0,260}\/api\/repositories\/\$\{state\.selectedId\}\/solutions/,
+    "开启过滤应从后端扫描解决方案接口拉取列表"
+  );
+  assert.match(
+    app,
+    /function renderSolutionView\(\)/,
+    "应存在独立的解决方案视图渲染"
+  );
+  assert.match(
+    app,
+    /function resolveFileEntry\(filePath\)/,
+    "应抽出解析文件条目的函数，以便解决方案文件不依赖 git 状态"
+  );
+  assert.match(
+    app,
+    /state\.solutions\.includes\(filePath\)/,
+    "点击 .sln 文件应能在解决方案列表里解析到，而不依赖 git 状态"
+  );
+  assert.match(
+    app,
+    /elements\.changesView\.classList\.toggle\([\s\S]{0,80}"solution-mode"/,
+    "解决方案模式应切换 solution-mode 类以隐藏暂存勾选"
+  );
   // 双击 .sln 行用 VS 打开；非 .sln 文件忽略。
   assert.match(app, /elements\.fileGroups\.addEventListener\("dblclick"/, "应绑定文件列表双击事件");
   assert.match(
@@ -224,6 +255,41 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
     app,
     /data-preview-action="openSolution"/,
     "预览区应提供「用 Visual Studio 打开」按钮"
+  );
+
+  // 后端：新增与 git 无关的解决方案扫描接口。
+  const routes = await fs.readFile(
+    path.join(ROOT, "src", "routes.js"),
+    "utf8"
+  );
+  assert.match(
+    routes,
+    /\(status\|detail\|diff\|file\|history\|action\|solutions\)/,
+    "仓库路由正则应包含 solutions 子路径"
+  );
+  assert.match(
+    routes,
+    /route === "solutions"[\s\S]{0,80}listSolutions\(repository\)/,
+    "GET solutions 应调用 listSolutions 扫描目录"
+  );
+  const directories = await fs.readFile(
+    path.join(ROOT, "src", "directories.js"),
+    "utf8"
+  );
+  assert.match(
+    directories,
+    /async function listSolutions\(repository\)/,
+    "directories 应导出 listSolutions"
+  );
+  assert.match(
+    directories,
+    /entry\.name === "\.git"/,
+    "扫描解决方案应跳过 .git 目录"
+  );
+  assert.match(
+    directories,
+    /endsWith\("\.sln"\)/,
+    "listSolutions 只收集 .sln 文件"
   );
 
   // 后端：动作白名单登记 openVisualStudio，并用仓库路径校验防止越界。
@@ -250,4 +316,32 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
   // 样式：过滤按钮激活态与 solution 行标记。
   assert.match(css, /\.solution-filter-toggle \.solution-badge \{/);
   assert.match(css, /\.solution-file \.tree-file-open::after/, "solution 文件应有 VS 标记");
+});
+
+test("listSolutions 直接扫描目录下的 .sln，与 git 状态无关且跳过 .git", async () => {
+  const { listSolutions } = require("../src/directories");
+  const base = path.join(
+    ROOT,
+    ".workbuddy",
+    "scratch",
+    `sln-scan-${process.pid}-${Date.now()}`
+  );
+  await fs.mkdir(path.join(base, "src", "sub"), { recursive: true });
+  await fs.mkdir(path.join(base, ".git"), { recursive: true });
+  await fs.writeFile(path.join(base, "App.sln"), "");
+  await fs.writeFile(path.join(base, "src", "sub", "Lib.sln"), "");
+  // .git 内部即便有 .sln 也不应被扫描出来
+  await fs.writeFile(path.join(base, ".git", "ignoreme.sln"), "");
+  // 非 .sln 文件不应出现
+  await fs.writeFile(path.join(base, "readme.txt"), "");
+
+  const solutions = await listSolutions({ path: base });
+
+  assert.deepEqual(
+    solutions.sort(),
+    ["App.sln", "src/sub/Lib.sln"].sort(),
+    "应返回目录下（含子目录）所有 .sln 的相对路径，排除 .git 与非 .sln 文件"
+  );
+
+  await fs.rm(base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 });

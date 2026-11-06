@@ -76,7 +76,7 @@
 - 变更文件按真实目录层级显示。
 - 可在文件夹树视图和带完整路径的平铺列表之间切换。
 - 支持全部、未暂存、已暂存、未跟踪筛选。
-- 文件列表工具区提供 `.sln` 过滤按钮：点击后只显示仓库内的 Visual Studio 解决方案文件，与状态筛选叠加生效（即在当前状态结果中再筛 `.sln`）。
+- 文件列表工具区提供 `.sln` 过滤按钮：**开启后与 Git 状态完全无关**，直接扫描仓库目录下所有 `.sln` 文件（包括未发生改动、已提交的文件）并展示，不再受「全部/未暂存/已暂存/未跟踪」约束，状态筛选条与批量暂存勾选也会一并隐藏。关闭后恢复普通 Git 变更视图。
 - 双击 `.sln` 文件（或在选中它后点击预览区的「用 Visual Studio 打开」）会用本机 Visual Studio 直接打开该解决方案。
 - 点击文件立即显示 Diff。
 - 状态徽标使用颜色区分：新增/未跟踪绿色，删除红色，修改/重命名蓝色。
@@ -85,9 +85,10 @@
 
 - `collectChangedEntries()`
 - `renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`
-- `updateFileViewToggle()`、`getVisibleEntries()`（统一的可见文件筛选，含 `.sln` 后缀判断）
+- `updateFileViewToggle()`（同时切换 `solution-mode` 类）、`getVisibleEntries()`（解决方案模式直接返回扫描结果，普通模式按状态筛选）
+- `renderSolutionView()`（独立的解决方案视图渲染）、`toSolutionEntry()`、`fetchSolutions()`、`resolveFileEntry()`（点击 `.sln` 时从扫描结果解析，不依赖 Git 状态）
 - `isSolutionFile()`、`openInVisualStudio()`（`elements.fileGroups` 的 `dblclick` 监听 + 预览区 `openSolution` 动作）
-- 后端：`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）
+- 后端：`directories.listSolutions()`（递归扫描仓库目录、跳过 `.git`、返回相对路径）、`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）、路由 `GET /api/repositories/:id/solutions`
 - `fileStatus()`
 - `getPreviewKey()`、`loadFilePreview()`、`renderDiff()`
 - CSS：`.file-status.added`、`.deleted`、`.modified`、`.conflict`、`solution-filter-toggle`、`.solution-file`、`.solution-open-button`
