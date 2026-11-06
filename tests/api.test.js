@@ -774,6 +774,21 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     "摘除归属后剩余工作区的排序值必须有效"
   );
 
+  // 解决方案接口与 git 状态无关：未提交、未跟踪的 .sln 也必须列出来。
+  await fs.mkdir(path.join(repositoryPath, "nested"), { recursive: true });
+  await fs.writeFile(path.join(repositoryPath, "App.sln"), "");
+  await fs.writeFile(path.join(repositoryPath, "nested", "Lib.sln"), "");
+  const solutionListing = await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/solutions`
+  );
+  assert.deepEqual(
+    solutionListing.solutions.sort(),
+    ["App.sln", "nested/Lib.sln"].sort(),
+    "solutions 接口应直接扫描目录，返回根目录与子目录下的 .sln"
+  );
+
   const removed = await callApi(
     baseUrl,
     token,

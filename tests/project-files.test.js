@@ -214,7 +214,7 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
   );
   assert.match(
     app,
-    /async function fetchSolutions\(\)[\s\S]{0,260}\/api\/repositories\/\$\{state\.selectedId\}\/solutions/,
+    /async function fetchSolutions\(\)[\s\S]{0,500}\/api\/repositories\/\$\{[^}]+\}\/solutions/,
     "开启过滤应从后端扫描解决方案接口拉取列表"
   );
   assert.match(
@@ -344,4 +344,39 @@ test("listSolutions 直接扫描目录下的 .sln，与 git 状态无关且跳�
   );
 
   await fs.rm(base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+});
+
+test("解决方案读取失败必须明确报错，start.cmd 能真正重启后端", async () => {
+  const [app, startCmd, restartScript] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "start.cmd"), "utf8"),
+    fs.readFile(path.join(ROOT, "tools", "restart-server.ps1"), "utf8")
+  ]);
+
+  assert.match(app, /solutionsError: ""/, "应初始化解决方案错误状态");
+  assert.match(app, /state\.solutionsRequest/, "切换仓库时应让在途扫描请求失效");
+  assert.match(
+    app,
+    /\/接口不存在\|404\/\.test\(message\)[\s\S]{0,300}start\.cmd/,
+    "404 应提示重新运行 start.cmd 重启服务，不能伪装成空目录"
+  );
+  assert.match(
+    app,
+    /state\.solutionFilter && state\.solutionsError[\s\S]{0,300}无法读取解决方案列表/,
+    "文件列表错误态应显示明确原因"
+  );
+  assert.match(
+    app,
+    /if \(state\.solutionsError\)[\s\S]{0,260}无法读取解决方案列表/,
+    "预览区错误态不应显示「目录下没有 .sln 文件」"
+  );
+
+  assert.match(
+    startCmd,
+    /tools\\restart-server\.ps1/,
+    "start.cmd 启动前应先停掉旧服务进程"
+  );
+  assert.match(restartScript, /Get-NetTCPConnection -LocalPort/);
+  assert.match(restartScript, /server\\\.js/, "只终止运行 server.js 的进程");
+  assert.match(restartScript, /Stop-Process/);
 });

@@ -29,6 +29,8 @@
     fileFilter: "all",
     solutionFilter: false,
     solutions: [],
+    solutionsError: "",
+    solutionsRequest: 0,
     fileTreeMode: "tree",
     selectedFile: null,
     selectedFiles: new Set(),
@@ -1314,21 +1316,39 @@
   }
 
   // 开启解决方案过滤时，从后端扫描仓库目录下所有 .sln 文件（与 git 无关）。
+  // 请求失败绝不能伪装成「目录下没有 .sln」：旧版服务没有这个接口会返回 404，
+  // 必须明确提示后端需要重启，否则会把排查方向一直带到「目录里没文件」。
   async function fetchSolutions() {
     if (!state.selectedId) {
       return;
     }
+    const requestId = ++state.solutionsRequest;
+    const repositoryId = state.selectedId;
+    state.solutionsError = "";
+    state.solutions = [];
+    renderChanges(state.detail?.summary);
+
     try {
       const data = await api(
-        `/api/repositories/${state.selectedId}/solutions`,
+        `/api/repositories/${repositoryId}/solutions`,
         { method: "GET" }
       );
+      if (requestId !== state.solutionsRequest) {
+        return;
+      }
       state.solutions = Array.isArray(data.solutions) ? data.solutions : [];
     } catch (error) {
+      if (requestId !== state.solutionsRequest) {
+        return;
+      }
       state.solutions = [];
-      showToast("读取解决方案失败", error.message, "error");
+      const message = error?.message || "未知错误";
+      state.solutionsError = /接口不存在|404/.test(message)
+        ? "GitDeck 服务仍是旧版本，缺少解决方案接口。请重新运行 .\\start.cmd 重启服务后再试。"
+        : `读取解决方案失败：${message}`;
+      showToast("读取解决方案失败", state.solutionsError, "error");
     }
-    renderChanges(state.detail.summary);
+    renderChanges(state.detail?.summary);
   }
 
   function getVisibleEntries(entries) {
@@ -1360,7 +1380,9 @@
   function renderSolutionView() {
     const entries = state.solutions.map(toSolutionEntry);
     const visibleEntries = getVisibleEntries(entries);
-    elements.explorerCount.textContent = String(visibleEntries.length);
+    elements.explorerCount.textContent = state.solutionsError
+      ? "!"
+      : String(visibleEntries.length);
 
     elements.fileFilterBar.querySelectorAll("[data-file-filter]").forEach(
       (button) => button.classList.remove("active")
@@ -1378,7 +1400,15 @@
     renderFileTree(visibleEntries);
     renderPreviewHeader();
 
-    if (state.selectedFile) {
+    if (state.solutionsError) {
+      elements.filePreview.innerHTML = `
+        <div class="preview-placeholder">
+          ${icon("alert")}
+          <strong>无法读取解决方案列表</strong>
+          <span>${escapeHtml(state.solutionsError)}</span>
+        </div>
+      `;
+    } else if (state.selectedFile) {
       elements.filePreview.innerHTML = `
         <div class="preview-placeholder">
           ${icon("external-link")}
@@ -1401,6 +1431,18 @@
   function renderFileTree(entries) {
     updateFileViewToggle();
     updateBatchSelectionUi(entries);
+    if (state.solutionFilter && state.solutionsError) {
+      elements.fileGroups.innerHTML = `
+        <div class="group-empty group-empty-error">
+          ${icon("alert")}
+          <div>
+            <strong>无法读取解决方案列表</strong>
+            <span>${escapeHtml(state.solutionsError)}</span>
+          </div>
+        </div>
+      `;
+      return;
+    }
     if (!entries.length) {
       elements.fileGroups.innerHTML = `
         <div class="group-empty">
@@ -2871,6 +2913,8 @@
     state.fileFilter = "all";
     state.solutionFilter = false;
     state.solutions = [];
+    state.solutionsError = "";
+    state.solutionsRequest += 1;
     state.selectedFiles.clear();
     state.batchBusy = false;
     state.branchSelection.clear();
@@ -3149,11 +3193,13 @@
     const solutionFilter = event.target.closest("[data-action='toggle-solution-filter']");
     if (solutionFilter) {
       state.solutionFilter = !state.solutionFilter;
+      state.solutionsRequest += 1;
+      state.solutionsError = "";
       if (state.solutionFilter) {
         fetchSolutions();
       } else {
         state.solutions = [];
-        renderChanges(state.detail.summary);
+        renderChanges(state.detail?.summary);
       }
       return;
     }

@@ -2542,6 +2542,29 @@ body.is-resizing * {
   color: var(--green);
 }
 
+.group-empty-error {
+  align-items: flex-start;
+  color: var(--red, #c0392b);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.group-empty-error .icon {
+  color: var(--red, #c0392b);
+  flex: none;
+  margin-top: 2px;
+}
+
+.group-empty-error strong,
+.group-empty-error span {
+  display: block;
+}
+
+.group-empty-error span {
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
 .workspace-clean {
   display: flex;
   min-height: 220px;
