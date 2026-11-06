@@ -24,8 +24,10 @@ exit /b 1
 
 :run
 set "GITDECK_DESKTOP=1"
-rem 后端代码只在进程启动时加载；服务默认常驻，必须先停掉旧进程，
-rem 否则重新运行只会多起一个抢不到端口的进程，界面仍连着旧代码。
+rem Closing the desktop window stops the backend; the next launch starts a new
+rem one. Still clean up any leftover old process so the new server.js can bind
+rem the port and load the latest backend code. Keep rem lines ASCII only: cmd.exe
+rem mis-parses some UTF-8 Chinese comments as commands even after chcp 65001.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\restart-server.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%NODE_EXE%' -ArgumentList 'server.js' -WorkingDirectory '%CD%' -WindowStyle Hidden"
 exit /b 0

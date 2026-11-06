@@ -2,6 +2,24 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-06 - 关窗口即退后端；后台 fetch 不再抢用户仓库
+
+- 用户反馈：关闭应用后后端不重启（旧代码一直在跑），「关了软件就应该把后端关掉，打开软件再开后端」；同时 TortoiseGit Log 窗口打开后持续转圈、标题「未响应」，怀疑 GitDeck 把仓库锁死。
+- 生命周期根因：`HEARTBEAT_TIMEOUT_MS=0` 时服务默认常驻，`launchAppWindow()` 又是 `detached + unref` 的独立浏览器进程，窗口与后端完全解耦。之前为修 `ERR_CONNECTION_REFUSED` 把心跳超时默认关掉，等于连「关窗退出」一起丢掉了。
+- TortoiseGit 取证（结论：不是 GitDeck 死锁）：卡住的 `TortoiseGitProc.exe` `Responding=False`，CPU 182s → 226s 持续上涨（自身 UI 线程忙等），没有 git 子进程；目标仓库 `.git` 下无 `index.lock` / `packed-refs.lock` / `maintenance.lock`；当时系统里 GitDeck 的 `git.exe` 进程数为 0。另发现 `AgisoCodes/.git/index.lock`（16:32）与两个 2025 年的 `maintenance.lock`，均属用户仓库的历史残留，**未擅自删除**。
+- 但自动抓取确有侵入性：`startAutoFetch()` 每次服务启动立即跑一轮，加上 5 分钟定时，对全部 23 个仓库 `git fetch --all`；为修 `.sln` 反复重启服务时叠加多轮，仓库 `FETCH_HEAD` 的写入时间与重启时间吻合。
+- 修复：
+  - `src/desktop.js`：`--app` 改用独立 `data/chrome-profile`（否则会被转发给日常 Chrome 实例，启动器秒退、永远感知不到关窗）；`launchAppWindow()` 返回 child；新增可注入时钟/定时器的 `createWindowLifecycle()` 与 `attachAppWindow()`，以窗口进程 `exit` 为唯一退出依据，带 10s 启动失败保护和 3s 宽限。睡眠/后台冻结不会误杀。
+  - `server.js`：桌面模式挂载窗口生命周期，退出前 `stopAutoFetch()` + `killActiveChildren()` + `process.exit(0)`；`src/process.js` 新增 `activeChildren` 跟踪。
+  - `tools/restart-server.ps1`：强杀旧后端前先递归收敛它的 `git.exe` 子进程（`Stop-GitDescendants()`），不碰 Chrome 窗口，避免半截 fetch 留下 `.lock`。
+  - `src/config.js` / `src/auto-fetch.js`：首轮延迟 60s（`GITDECK_AUTO_FETCH_DELAY_MS`）；近期 `.git/*.lock` 整仓跳过（超过 10 分钟的陈旧锁忽略，支持 worktree 的 `gitdir:` 形式）；`fetch` 加 `-c maintenance.auto=false` 禁用自动 gc / pack-refs；失败仓库退避 15 分钟；并发 3 → 2；`GITDECK_AUTO_FETCH=0` 可完全关闭。
+- 附带修复：`start.cmd` 的 UTF-8 中文 `rem` 注释会被 `cmd.exe` 截断后当成命令执行（实测报 `'…时加载，不清理会让新进程…' is not recognized as an internal or external command`，服务虽仍能启动但输出很脏）→ 启动脚本注释一律 ASCII，并在 `tests/project-files.test.js` 加 `rem` 行 ASCII 断言。
+- 验证：
+  - `node --test` 43/43、`node tools/check-docs.js` 通过；`restart-server.ps1` 语法、`start.cmd` CRLF、五个改动文件的 `node --check` 均通过。
+  - 隔离端口 4399 端到端：关闭 `--app` 窗口 3 秒后日志依次出现「桌面窗口已关闭，GitDeck 服务准备退出」→「GitDeck 后端退出。」，监听归零、node 进程消失、任务 exit code 0。
+  - 主服务重启后 `/api/ping` 200、`/solutions` 200 且返回 16 个 `.sln`；窗口命令行含 `data\chrome-profile`；日志出现「60s 后开始首轮抓取」。
+- 文档同步：`AGENTS.md`、`docs/DEVELOPMENT.md`、`docs/FEATURES.md`、`docs/TROUBLESHOOTING.md`。
+
 ## 2026-11-06 - 修复 .sln 按钮「改两次仍为空」：后端进程未重启
 
 - 现象：用户第二次反馈选中 `.sln` 按钮后列表为空，提示「目录下没有 .sln 文件」，但资源管理器里该仓库目录明确有 8 个以上 `.sln`。

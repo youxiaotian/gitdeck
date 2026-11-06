@@ -16,6 +16,17 @@ test("start.cmd 使用 Windows CRLF 换行，避免 cmd.exe 解析错误", async
   assert.ok(crlfCount > 0, "start.cmd 应包含 CRLF 换行");
   assert.equal(lfCount, 0, "start.cmd 不应包含裸 LF 换行");
   assert.match(content, /server\.js/);
+  // cmd.exe 会把部分 UTF-8 中文 rem 注释截断后当成命令执行（报
+  // "'...' is not recognized as an internal or external command"）。
+  const remLines = content
+    .split(/\r?\n/)
+    .filter((line) => /^\s*rem\b/i.test(line));
+  for (const line of remLines) {
+    assert.ok(
+      /^[\x00-\x7F]*$/.test(line),
+      `rem 注释必须保持 ASCII：${line}`
+    );
+  }
 });
 
 test(".gitattributes 固定 cmd 文件使用 CRLF", async () => {
@@ -379,4 +390,42 @@ test("解决方案读取失败必须明确报错，start.cmd 能真正重启后�
   assert.match(restartScript, /Get-NetTCPConnection -LocalPort/);
   assert.match(restartScript, /server\\\.js/, "只终止运行 server.js 的进程");
   assert.match(restartScript, /Stop-Process/);
+});
+
+test("桌面窗口进程退出即关闭后端，后台 fetch 不再启动即抢仓库", async () => {
+  const [desktop, server, restartScript, config, autoFetch, processModule] =
+    await Promise.all(
+      [
+        ["src", "desktop.js"],
+        ["server.js"],
+        ["tools", "restart-server.ps1"],
+        ["src", "config.js"],
+        ["src", "auto-fetch.js"],
+        ["src", "process.js"]
+      ].map((parts) => fs.readFile(path.join(ROOT, ...parts), "utf8"))
+    );
+
+  assert.match(
+    desktop,
+    /--user-data-dir=\$\{WINDOW_PROFILE_DIR\}/,
+    "必须用独立 profile，否则窗口关闭无法被后端感知"
+  );
+  assert.match(desktop, /function createWindowLifecycle/);
+  assert.match(desktop, /attachAppWindow/);
+  assert.match(server, /attachAppWindow\(child/);
+  assert.match(server, /killActiveChildren\(\)/, "退出前清理在飞的 git 子进程");
+  assert.match(server, /process\.exit\(0\)/, "关窗口应真正结束后端进程");
+  assert.match(
+    restartScript,
+    /Stop-GitDescendants/,
+    "强杀旧后端前先收敛其 git 子进程，避免留下 lock"
+  );
+  assert.match(
+    restartScript,
+    /--app=http:\/\/127\.0\.0\.1:\$port/,
+    "重启时应精确收掉旧 GitDeck 窗口，避免留下孤儿窗口"
+  );
+  assert.match(config, /AUTO_FETCH_INITIAL_DELAY_MS/);
+  assert.match(autoFetch, /maintenance\.auto=false/);
+  assert.match(processModule, /activeChildren/);
 });

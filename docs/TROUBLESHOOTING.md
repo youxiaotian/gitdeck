@@ -36,7 +36,7 @@ Get-Content .\data\server.log -Tail 30
 curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 ```
 
-日志末尾若是「桌面窗口已关闭，GitDeck 退出。」说明走了自动退出（检查是否设置了 `GITDECK_HEARTBEAT=1`）；若只有启动记录没有退出记录，多半是进程被外部结束或系统重启，重新双击 `start.cmd` 即可。
+日志末尾若是「桌面窗口已关闭，GitDeck 后端退出。」，说明用户关闭了桌面窗口（正常行为，重新双击 `start.cmd` 即可）；若是「确认窗口内仍无心跳，判定桌面窗口已关闭」，说明额外启用了 `GITDECK_HEARTBEAT=1`。若只有启动记录没有退出记录，多半是进程被外部结束或系统重启。
 
 ## 提示“请求来源不受信任”
 
@@ -55,7 +55,8 @@ curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 
 - 把 `start.cmd` 改为标准 CRLF；
 - 增加 `.gitattributes`，固定 `*.cmd` 使用 CRLF；
-- 在 `start.cmd` 中加入 `node.exe` 常见安装路径兜底。
+- 在 `start.cmd` 中加入 `node.exe` 常见安装路径兜底；
+- `rem` 注释一律使用 ASCII。UTF-8 中文 `rem` 即使有 `chcp 65001` 也可能被 `cmd.exe` 截断后当成命令执行，报类似 `'…时加载，…' is not recognized`；`tests/project-files.test.js` 会拦截这种情况。
 
 如果文件被编辑器重新保存后再次出现该错误，在项目根目录执行：
 
@@ -187,7 +188,23 @@ Get-Content data/repositories.json
 
 ## 端口被占用
 
-服务会自动尝试后续 10 个端口。查看启动日志中的实际地址，或显式设置 `PORT`。
+桌面模式端口固定为 `4321`（`PORT` 可改）。重新运行 `.\start.cmd` 会先执行 `tools/restart-server.ps1`，精确停掉占用该端口且运行 `server.js` 的旧进程，等端口释放后再启动新进程，不会退化到后续端口。浏览器模式（`node server.js`）才会自动尝试后续 10 个端口，查看启动日志中的实际地址。
+
+## TortoiseGit / IDE 打开仓库时转圈或报「仓库被占用」
+
+后台定时抓取会在用户操作期间碰到同一仓库，默认已做让路：首轮延迟 60 秒、遇到近期 `.git/*.lock` 整仓跳过、禁用 `git maintenance --auto`、失败退避 15 分钟、并发 2。
+
+排查顺序：
+
+```powershell
+Get-Content .\data\server.log -Tail 40
+Get-ChildItem "<用户仓库>/.git" -Recurse -Force -File -Filter "*.lock" |
+  Select-Object FullName, LastWriteTime
+```
+
+- 锁文件时间若是很久以前（几周、几个月），通常是历史残留而不是 GitDeck 正在占用；确认没有 Git / IDE 在操作后再自行处理。**GitDeck 不会删除用户仓库里的任何文件。**
+- 想彻底排除后台抓取影响：设置 `GITDECK_AUTO_FETCH=0` 后重新运行 `.\start.cmd`；也可用 `GITDECK_AUTO_FETCH_MS` 拉长间隔、`GITDECK_AUTO_FETCH_DELAY_MS` 调整首轮延迟。
+- 若 TortoiseGit 持续「未响应」但系统里没有 git 子进程、仓库也没有近期锁，多半是它自身在 `<All Branches>` 模式下绘制大量远端分支图；可把范围切到当前分支，或清理不再需要的 `origin/*` 远程跟踪分支。
 
 ## 选中 `.sln` 按钮后提示「目录下没有 .sln 文件」
 

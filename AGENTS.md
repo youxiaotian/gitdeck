@@ -47,9 +47,12 @@
 ### 服务进程与前端资源
 
 - `public/` 下静态资源带 `no-store`，前端改动按 F5 即生效。
-- `src/` 下的后端代码**只在 Node 进程启动时加载**。服务默认常驻，关掉窗口或刷新页面都不会重启进程；任何后端 / 启动行为改动，必须重新运行 `.\start.cmd`。
-- `start.cmd` 会先调用 `tools/restart-server.ps1`，精确停掉占用 GitDeck 端口且命令行包含 `server.js` 的旧进程，再启动新进程。不要删掉这一步，否则新接口会一直返回 404，界面会连着昨天的旧代码。
+- `src/` 下的后端代码**只在 Node 进程启动时加载**。桌面模式（`.\start.cmd`）下，**关闭桌面窗口即结束后端进程，重新运行 `.\start.cmd` 会重新拉起后端 + 窗口**；后端改动只要关窗口再开就生效。
+- 判定依据是 `--app` 窗口进程（独立 `data/chrome-profile`）的 `exit` 事件，**不是心跳超时**：Chrome 后台冻结、系统睡眠、页面卡顿都不会让进程消失，因此不会重现 `ERR_CONNECTION_REFUSED`。`GITDECK_HEARTBEAT=1` 才额外启用心跳自动退出。浏览器模式（`node server.js`）仍常驻，用 `Ctrl+C` 停止。
+- `start.cmd` 仍会先调用 `tools/restart-server.ps1`：精确停掉占用端口且运行 `server.js` 的旧进程，并先收敛它的 `git.exe` 子进程，覆盖旧版常驻服务残留或窗口未关时重复运行。不要删掉这一步，否则新接口会一直返回 404，界面会连着旧代码。
 - 前端调用后端新增接口失败时，必须显示明确错误与重启指引，**不能把请求失败渲染成「没有数据」**（曾因此把 `.sln` 404 误报为「目录下没有 .sln 文件」）。
+- `start.cmd` 的 `rem` 注释**只能用 ASCII，且文件必须保持 CRLF**：即便有 `chcp 65001`，`cmd.exe` 仍会把部分 UTF-8 中文注释截断后当成命令执行。`tests/project-files.test.js` 有对应断言。
+- 后台 `auto-fetch` 会在用户使用 TortoiseGit / IDE 时碰用户仓库：首轮延迟 60s、遇到近期 `.git/*.lock` 整仓跳过、禁用 fetch 后的 auto maintenance、失败仓库退避 15 分钟、并发 2，`GITDECK_AUTO_FETCH=0` 可完全关闭。改这块前先想清楚「用户此刻正在操作这个仓库」的情形。
 
 ### Git 行为
 
@@ -113,7 +116,7 @@
 | `src/process.js` | 子进程封装，`runGit` 注入 `safe.directory` |
 | `src/locks.js` | 单仓库动作串行化锁 |
 | `src/shell.js` | 资源管理器、终端、TortoiseGit |
-| `src/desktop.js` | 桌面壳 A：浏览器探测、--app 窗口、单实例、心跳看门狗 |
+| `src/desktop.js` | 桌面壳：浏览器探测、独立 profile 的 --app 窗口、单实例、窗口进程生命周期、可选心跳看门狗 |
 | `src/repository-store.js` | JSON 存储与版本迁移 |
 | `src/git-utils.js` | porcelain v2 / log / branch / stash 解析 |
 

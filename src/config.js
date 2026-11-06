@@ -25,7 +25,19 @@ const AUTO_FETCH_INTERVAL_MS =
   process.env.GITDECK_AUTO_FETCH === "0"
     ? 0
     : Number(process.env.GITDECK_AUTO_FETCH_MS) || 5 * 60 * 1000;
-const AUTO_FETCH_CONCURRENCY = 3;
+// 服务启动后延迟首轮：以前每次启动都立刻对全部仓库 fetch，重启/反复启动会
+// 叠加多轮，正好撞上用户正在开的 TortoiseGit Log。GITDECK_AUTO_FETCH_DELAY_MS=0 可恢复立即执行。
+const AUTO_FETCH_INITIAL_DELAY_MS =
+  process.env.GITDECK_AUTO_FETCH_DELAY_MS === undefined
+    ? 60 * 1000
+    : Number(process.env.GITDECK_AUTO_FETCH_DELAY_MS);
+// 失败仓库（远端不存在 / 无权限）退避，避免每轮都白跑一次网络请求。
+const AUTO_FETCH_FAILURE_BACKOFF_MS = 15 * 60 * 1000;
+// 只有近期的 .git/*.lock 才算「用户正在操作」；不少仓库常年残留一年前的
+// maintenance.lock，那种陈旧锁要忽略，否则这些仓库永远不会被抓取。
+const AUTO_FETCH_LOCK_MAX_AGE_MS = 10 * 60 * 1000;
+// 并发压到 2：仓库多时别同时碰太多 .git 目录。
+const AUTO_FETCH_CONCURRENCY = 2;
 
 // 桌面模式默认让服务常驻：Chrome 会冻结长时间后台的窗口（JS 完全停止，
 // 不只是节流），系统睡眠也会让心跳中断，任何固定超时都可能把仍在使用的
@@ -62,6 +74,9 @@ module.exports = {
   MAX_BODY_BYTES,
   MAX_DIFF_BYTES,
   AUTO_FETCH_INTERVAL_MS,
+  AUTO_FETCH_INITIAL_DELAY_MS,
+  AUTO_FETCH_FAILURE_BACKOFF_MS,
+  AUTO_FETCH_LOCK_MAX_AGE_MS,
   AUTO_FETCH_CONCURRENCY,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_TIMEOUT_MS,

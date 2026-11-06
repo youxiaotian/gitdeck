@@ -2,10 +2,56 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { EventEmitter } = require("node:events");
 const {
   createHeartbeatWatchdog,
+  createWindowLifecycle,
+  attachAppWindow,
+  WINDOW_PROFILE_DIR,
+  WINDOW_MIN_ALIVE_MS,
+  WINDOW_EXIT_GRACE_MS,
   SUSPEND_THRESHOLD_MS
 } = require("../src/desktop");
+
+// 可控时钟 + 可控定时器，用来验证「关窗口即退后端」而不真的等待秒表。
+function windowHarness({ minAliveMs = 10000, graceMs = 3000 } = {}) {
+  let clock = 0;
+  let sequence = 0;
+  const timers = new Map();
+  const logs = [];
+  const exits = [];
+  const lifecycle = createWindowLifecycle({
+    now: () => clock,
+    minAliveMs,
+    graceMs,
+    schedule: (fn, ms) => {
+      const id = ++sequence;
+      timers.set(id, { fn, at: clock + ms });
+      return id;
+    },
+    cancel: (id) => timers.delete(id),
+    onLog: (message) => logs.push(message),
+    onExit: () => exits.push(clock)
+  });
+
+  function advance(ms) {
+    const target = clock + ms;
+    for (;;) {
+      const due = [...timers.entries()]
+        .filter(([, timer]) => timer.at <= target)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) {
+        break;
+      }
+      clock = due[1].at;
+      timers.delete(due[0]);
+      due[1].fn();
+    }
+    clock = target;
+  }
+
+  return { lifecycle, logs, exits, advance };
+}
 
 // 可控时钟：tick() 按检查周期推进，jump() 模拟系统睡眠后的时钟跳变。
 function harness({ timeoutMs = 30000, graceMs = 15000, tickMs = 5000 } = {}) {
@@ -95,4 +141,58 @@ test("挂起恢复后仍有完整超时窗口", () => {
 
 test("挂起阈值至少覆盖一次系统睡眠的最小间隔", () => {
   assert.ok(SUSPEND_THRESHOLD_MS >= 15000);
+});
+
+test("窗口正常退出后才关闭后端，且要经过宽限确认", () => {
+  const h = windowHarness();
+  h.advance(WINDOW_MIN_ALIVE_MS + 1000);
+  h.lifecycle.windowExited(0, null);
+  assert.equal(h.exits.length, 0, "宽限期内不能立刻退出");
+  h.advance(WINDOW_EXIT_GRACE_MS);
+  assert.equal(h.exits.length, 1);
+  assert.ok(h.logs.some((line) => line.includes("窗口已关闭")));
+});
+
+test("窗口进程启动即退出视为启动失败，服务保持运行", () => {
+  const h = windowHarness();
+  h.advance(1500);
+  h.lifecycle.windowExited(1, null);
+  h.advance(WINDOW_EXIT_GRACE_MS * 3);
+  assert.equal(h.exits.length, 0, "不能因为 Chrome 启动失败把后端一起带走");
+  assert.ok(h.logs.some((line) => line.includes("启动失败")));
+});
+
+test("窗口退出事件重复触发不会重复退出", () => {
+  const h = windowHarness();
+  h.advance(WINDOW_MIN_ALIVE_MS + 1);
+  h.lifecycle.windowExited(0, null);
+  h.lifecycle.windowExited(0, null);
+  h.advance(WINDOW_EXIT_GRACE_MS);
+  assert.equal(h.exits.length, 1);
+});
+
+test("睡眠/后台冻结不产生窗口退出事件，服务不该被误杀", () => {
+  const h = windowHarness();
+  h.advance(8 * 60 * 60 * 1000);
+  assert.equal(h.exits.length, 0, "仅时间流逝不能判定窗口关闭");
+  assert.equal(h.lifecycle.state.windowClosed, false);
+});
+
+test("attachAppWindow 把子进程 exit 事件接到生命周期", () => {
+  const child = new EventEmitter();
+  const h = windowHarness({ minAliveMs: 0 });
+  attachAppWindow(child, {
+    now: () => 0,
+    minAliveMs: 0,
+    graceMs: 0,
+    schedule: (fn) => fn(),
+    onExit: () => h.exits.push(1)
+  });
+  child.emit("exit", 0, null);
+  assert.equal(h.exits.length, 1);
+});
+
+test("桌面窗口使用独立 profile，关闭才能被后端感知", () => {
+  assert.match(WINDOW_PROFILE_DIR, /chrome-profile$/);
+  assert.ok(WINDOW_PROFILE_DIR.includes("data"));
 });

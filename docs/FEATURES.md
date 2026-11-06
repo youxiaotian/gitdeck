@@ -193,12 +193,16 @@
 - 服务端定时后台 fetch（默认 5 分钟，`GITDECK_AUTO_FETCH_MS` 可调、`GITDECK_AUTO_FETCH=0` 关闭）：
   自动对有远端的仓库执行 `git fetch --all`（不含 prune），保持 `origin/*` 快照最新；
   跳过正被用户动作占用的仓库，失败静默不弹错。
+- 后台抓取对用户操作让路：启动后延迟 60 秒才跑首轮（`GITDECK_AUTO_FETCH_DELAY_MS` 可调）；
+  仓库存在近期 `.git/*.lock`（正被 TortoiseGit / IDE / 用户动作使用）时整仓跳过；
+  禁用 fetch 后的 `git maintenance --auto`，避免 gc / pack-refs 抢 `.git` 目录；
+  连续失败的仓库退避 15 分钟，并发限制为 2。
 
 **实现位置**
 
 - 动作：`fetch`、`pull`、`push`
 - 拉取固定使用 `git pull --ff-only`
-- 定时抓取：`src/auto-fetch.js`（`startAutoFetch()`，server.js 监听后启动）
+- 定时抓取：`src/auto-fetch.js`（`startAutoFetch()`、`hasActiveGitLock()`，server.js 监听后启动）
 - 前端：`requestRepoAction()`、`requestBulkAction()`、`executeBulkAction()`
 
 ## TortoiseGit 外部界面
@@ -219,17 +223,19 @@
 
 **用户行为**
 
-- 双击 `start.cmd` 以独立窗口形态启动，无地址栏、无标签页。
-- 关闭窗口后服务默认继续在后台常驻，刷新或再次双击快捷方式都能立即打开；不会被浏览器后台冻结、系统睡眠等因素误判为"窗口已关闭"而自行退出。
-- 需要"关窗后服务退出"时，启动前设置 `GITDECK_HEARTBEAT=1`；此时连续 120 秒无心跳 + 15 秒确认窗口才退出，睡眠/挂起不会误判。
-- 再次启动会接管已运行实例（只开窗口，不重复启动服务）。
-- 运行日志写入 `data/server.log`（启动、看门狗判定、未捕获异常），隐藏窗口启动时也能排查。
+- 双击 `start.cmd` 以独立窗口形态启动，无地址栏、无标签页；窗口使用独立 `data/chrome-profile`，不复用日常 Chrome 实例。
+- **关闭窗口即结束后端服务**；下次双击 `start.cmd` 重新拉起后端与窗口，加载的一定是最新代码。
+- 判定依据是窗口进程的 `exit` 事件，不是心跳超时：浏览器后台冻结、系统睡眠、页面卡顿都不会被误判成"窗口已关闭"，不会自行退出报 `ERR_CONNECTION_REFUSED`。
+- `GITDECK_HEARTBEAT=1` 可额外启用心跳自动退出（120 秒无心跳 + 15 秒确认窗口，睡眠/挂起不会误判）；默认不启用。
+- 再次启动会接管已运行实例（只开窗口，不重复启动服务）；`start.cmd` 仍会先清理旧后端进程及其 git 子进程。
+- 运行日志写入 `data/server.log`（启动、窗口生命周期、未捕获异常），隐藏窗口启动时也能排查。
 - 窗口尺寸持久化，下次按上次尺寸打开；Chrome 在已有实例运行时会忽略 `--window-size`，因此页面加载后会读取存档尺寸并 `resizeTo` 恢复，应用预设期间的尺寸变化不上报（防止存档被小窗口覆盖）。
 
 **实现位置**
 
-- `src/desktop.js`：`findBrowser()`、`launchAppWindow()`、`probeInstance()`、`createHeartbeatWatchdog()`、`startHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`
-- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位；注册文件日志与全局异常兜底
+- `src/desktop.js`：`findBrowser()`、`launchAppWindow()`、`attachAppWindow()`、`createWindowLifecycle()`、`probeInstance()`、可选的 `createHeartbeatWatchdog()` / `startHeartbeatWatchdog()` / `touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`
+- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位；窗口退出时停掉定时抓取与在飞 git 子进程后结束进程；注册文件日志与全局异常兜底
+- `src/process.js`：`killActiveChildren()`、`tools/restart-server.ps1` 的 `Stop-GitDescendants()`，避免强杀留下 `.lock`
 - `src/logger.js`：把 console 输出同步写入 `data/server.log`，超 256 KB 轮转为 `.1`
 - 接口：`GET /api/ping`、`POST /api/heartbeat`、`GET/POST /api/window`
 - 前端：`public/index.html` 内联心跳与窗口尺寸上报脚本

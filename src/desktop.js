@@ -1,10 +1,12 @@
 "use strict";
 
 // @module desktop
-// 桌面壳 A：浏览器探测、--app 独立窗口、单实例探测、窗口尺寸持久化、心跳看门狗。
-// 修改注意：仅在 GITDECK_DESKTOP=1 时启用看门狗与 app 窗口；否则 server.js 走原浏览器模式。
-// 看门狗不能用「一段时间没心跳」直接退出：Chrome 后台节流、系统睡眠、
-// 页面卡顿都会让心跳中断但窗口仍在，曾导致服务自己挂掉、刷新报 ERR_CONNECTION_REFUSED。
+// 桌面壳：浏览器探测、--app 独立窗口、单实例探测、窗口尺寸持久化、窗口生命周期。
+// 修改注意：仅在 GITDECK_DESKTOP=1 时启用 app 窗口与窗口生命周期；否则走浏览器模式。
+// 「关窗口即退后端」只以窗口进程是否退出为依据，不用心跳超时：Chrome 后台冻结、
+// 系统睡眠、页面卡顿都不会让进程消失，因此不会重现 ERR_CONNECTION_REFUSED。
+// 必须用独立 --user-data-dir，否则 --app 会被转发给用户日常 Chrome 实例，
+// 启动器进程秒退而主进程永不退出，后端就再也感知不到窗口关闭。
 
 const fs = require("node:fs/promises");
 const http = require("node:http");
@@ -18,6 +20,12 @@ const {
 } = require("./config");
 
 const WINDOW_STATE_FILE = path.join(DATA_ROOT, "window.json");
+const WINDOW_PROFILE_DIR = path.join(DATA_ROOT, "chrome-profile");
+// 窗口进程在这么短时间内退出视为启动失败（浏览器缺失、profile 被占用等），
+// 此时不能把服务一起带走，否则会出现「点开软件后端立刻没了」。
+const WINDOW_MIN_ALIVE_MS = 10000;
+// 窗口退出后给一点缓冲，避免 Chrome 升级/重启主进程时误退出。
+const WINDOW_EXIT_GRACE_MS = 3000;
 const DEFAULT_WIDTH = 1680;
 const DEFAULT_HEIGHT = 1000;
 // 下限收紧：避免历史存档的小尺寸（或 Chrome 忽略 --window-size 时上报的小窗口）
@@ -124,13 +132,15 @@ async function launchAppWindow(url) {
     })
       .on("error", (error) => console.error(`打开浏览器失败：${error.message}`))
       .unref();
-    return false;
+    return null;
   }
   const { width, height } = await loadWindowSize();
-  spawn(
+  await fs.mkdir(WINDOW_PROFILE_DIR, { recursive: true }).catch(() => {});
+  const child = spawn(
     browser.path,
     [
       `--app=${url}`,
+      `--user-data-dir=${WINDOW_PROFILE_DIR}`,
       `--window-size=${width},${height}`,
       "--window-position=80,60",
       "--disable-extensions",
@@ -142,10 +152,78 @@ async function launchAppWindow(url) {
       stdio: "ignore",
       windowsHide: false
     }
-  )
-    .on("error", (error) => console.error(`启动浏览器窗口失败：${error.message}`))
-    .unref();
-  return true;
+  );
+  child.on("error", (error) =>
+    console.error(`启动浏览器窗口失败：${error.message}`)
+  );
+  child.unref();
+  return child;
+}
+
+/**
+ * 纯逻辑窗口生命周期：窗口进程退出 -> 后端退出。
+ * 不依赖心跳，所以睡眠/冻结/后台节流都不会误杀；启动极早期退出视为启动失败。
+ * 定时器可注入，便于单测。
+ */
+function createWindowLifecycle({
+  now = Date.now,
+  minAliveMs = WINDOW_MIN_ALIVE_MS,
+  graceMs = WINDOW_EXIT_GRACE_MS,
+  schedule = setTimeout,
+  cancel = clearTimeout,
+  onExit = () => {},
+  onLog = () => {}
+} = {}) {
+  const startedAt = now();
+  let windowClosed = false;
+  let pending = null;
+  let exited = false;
+
+  return {
+    windowExited(code, signal) {
+      if (windowClosed || exited) {
+        return;
+      }
+      windowClosed = true;
+      const aliveMs = now() - startedAt;
+      if (aliveMs < minAliveMs) {
+        onLog(
+          `窗口进程启动 ${Math.round(aliveMs / 1000)}s 内退出（code=${code}, signal=${signal || "none"}），视为启动失败，服务保持运行`
+        );
+        return;
+      }
+      onLog("桌面窗口已关闭，GitDeck 服务准备退出");
+      pending = schedule(() => {
+        pending = null;
+        exited = true;
+        onExit();
+      }, graceMs);
+    },
+    dispose() {
+      if (pending) {
+        cancel(pending);
+        pending = null;
+      }
+    },
+    get state() {
+      return { windowClosed, exited, aliveMs: now() - startedAt };
+    }
+  };
+}
+
+function attachAppWindow(child, options = {}) {
+  const lifecycle = createWindowLifecycle(options);
+  if (!child) {
+    return lifecycle;
+  }
+  child.on("exit", (code, signal) => {
+    try {
+      lifecycle.windowExited(code, signal);
+    } catch (error) {
+      console.error(`[window] 窗口生命周期处理异常：${error.stack || error}`);
+    }
+  });
+  return lifecycle;
 }
 
 function probeInstance(port) {
@@ -246,7 +324,7 @@ function startHeartbeatWatchdog() {
   }
   if (HEARTBEAT_TIMEOUT_MS === 0) {
     console.log(
-      "[heartbeat] 服务默认常驻，不会因窗口后台/睡眠自动退出；设置 GITDECK_HEARTBEAT=1 可启用自动退出。"
+      "[heartbeat] 由窗口进程生命周期决定退出（关窗口即退），未启用心跳自动退出；GITDECK_HEARTBEAT=1 可额外开启。"
     );
     return;
   }
@@ -284,10 +362,15 @@ module.exports = {
   loadWindowSize,
   saveWindowSize,
   launchAppWindow,
+  attachAppWindow,
+  createWindowLifecycle,
   probeInstance,
   touchHeartbeat,
   createHeartbeatWatchdog,
   startHeartbeatWatchdog,
   stopHeartbeatWatchdog,
+  WINDOW_PROFILE_DIR,
+  WINDOW_MIN_ALIVE_MS,
+  WINDOW_EXIT_GRACE_MS,
   SUSPEND_THRESHOLD_MS
 };

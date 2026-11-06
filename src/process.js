@@ -8,6 +8,20 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { httpError } = require("./http");
 
+// 关窗口 / 重启时若正好有 fetch 在跑，直接退出会留下写了一半的 FETCH_HEAD
+// 或 lock 文件，用户在 TortoiseGit / VSCode 里就会撞上「仓库被占用」。
+const activeChildren = new Set();
+
+function killActiveChildren() {
+  for (const child of activeChildren) {
+    try {
+      child.kill();
+    } catch {
+      // 进程可能刚好结束。
+    }
+  }
+}
+
 function toGitPath(directoryPath) {
   return path.resolve(directoryPath).replaceAll("\\", "/");
 }
@@ -26,6 +40,8 @@ function runProcess(command, args, options = {}) {
       windowsHide: true,
       shell: false
     });
+    activeChildren.add(child);
+    const release = () => activeChildren.delete(child);
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -49,10 +65,12 @@ function runProcess(command, args, options = {}) {
         return;
       }
       settled = true;
+      release();
       clearTimeout(timeout);
       resolve({ code: 127, stdout, stderr: error.message });
     });
     child.on("close", (code) => {
+      release();
       if (settled) {
         return;
       }
@@ -98,4 +116,10 @@ async function gitAction(repositoryPath, args, options = {}) {
   );
 }
 
-module.exports = { runProcess, runGit, gitAction, toGitPath };
+module.exports = {
+  runProcess,
+  runGit,
+  gitAction,
+  toGitPath,
+  killActiveChildren
+};

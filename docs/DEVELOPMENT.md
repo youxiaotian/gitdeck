@@ -20,12 +20,16 @@ node server.js
 `start.cmd` 必须保持 CRLF 换行。仓库通过 `.gitattributes` 固定了
 `*.cmd text eol=crlf`，不要用会强制 LF 的编辑器保存它。
 
-独立运行方式（在项目根目录 `<repo>` 下执行）：
+桌面模式（在项目根目录 `<repo>` 下双击 `.\start.cmd`）：
 
-1. 双击当前目录下的 `.\start.cmd`；
-2. 保持弹出的命令行窗口开启；
-3. 浏览器会自动打开；
-4. 关闭命令行窗口或按 `Ctrl+C` 停止服务。
+1. 脚本先调用 `tools/restart-server.ps1` 清理旧后端，再以隐藏窗口启动 `server.js`；
+2. 自动打开独立 `data/chrome-profile` 的 `--app` 桌面窗口（不复用日常 Chrome 实例）；
+3. **关闭这个窗口即结束后端服务**；下次双击 `.\start.cmd` 重新拉起，加载的一定是最新后端代码；
+4. 退出前会停掉定时抓取并收敛在飞的 `git.exe`，避免留下 `.lock` 文件。
+
+开发调试可直接 `node server.js`（浏览器模式：端口自增、服务常驻），按 `Ctrl+C` 停止；此模式不因关闭标签页而退出。
+
+判定窗口关闭靠的是窗口进程 `exit` 事件，不是心跳超时，所以系统睡眠或 Chrome 后台冻结不会误杀服务。
 
 如果端口被占用，控制台会显示实际地址；默认从 `4321` 开始尝试。
 
@@ -35,7 +39,12 @@ node server.js
 | --- | --- |
 | `PORT` | 首次尝试端口，默认 `4321` |
 | `GITDECK_DATA_DIR` | 覆盖运行数据目录 |
-| `GITDECK_NO_OPEN` | `1` 表示不自动打开浏览器 |
+| `GITDECK_NO_OPEN` | `1` 表示不自动打开浏览器（桌面模式下也不会启用窗口生命周期） |
+| `GITDECK_DESKTOP` | `1` 启用桌面窗口模式，`start.cmd` 自动设置 |
+| `GITDECK_AUTO_FETCH` | `0` 完全关闭定时后台 fetch |
+| `GITDECK_AUTO_FETCH_MS` | 抓取间隔，默认 5 分钟 |
+| `GITDECK_AUTO_FETCH_DELAY_MS` | 启动后首轮抓取延迟，默认 60 秒，`0` 表示立即 |
+| `GITDECK_HEARTBEAT` | `1` 时额外启用心跳自动退出（默认只按窗口进程生命周期退出） |
 | `NODE_ENV` | `production` 时隐藏 500 内部错误细节 |
 
 ## 常用命令

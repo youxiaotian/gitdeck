@@ -2,8 +2,9 @@
 
 // @module server
 // 进程入口：创建 HTTP 服务、分发 API 与静态资源、监听端口。
-// 桌面模式（GITDECK_DESKTOP=1）：固定端口、单实例、--app 窗口、心跳看门狗。
-// 浏览器模式（默认）：端口自增、自动打开浏览器标签页。
+// 桌面模式（GITDECK_DESKTOP=1）：固定端口、单实例、独立 profile 的 --app 窗口，
+//   窗口进程退出即关闭后端（下次运行 .\start.cmd 重新拉起后台）。
+// 浏览器模式（默认）：端口自增、自动打开浏览器标签页，服务常驻。
 
 const http = require("node:http");
 const { spawn } = require("node:child_process");
@@ -13,6 +14,7 @@ const { sendError } = require("./src/http");
 const { serveStatic } = require("./src/static");
 const desktop = require("./src/desktop");
 const { startAutoFetch, stopAutoFetch } = require("./src/auto-fetch");
+const { killActiveChildren } = require("./src/process");
 const { installFileLogging, LOG_FILE } = require("./src/logger");
 
 // start.cmd 以隐藏窗口启动，stdout 无处可看；关键事件同步落盘，
@@ -90,9 +92,26 @@ async function main() {
 
     if (IS_DESKTOP) {
       if (process.env.GITDECK_NO_OPEN !== "1") {
-        desktop.launchAppWindow(address).catch((error) => {
-          console.error(`启动桌面窗口失败：${error.stack || error}`);
-        });
+        desktop
+          .launchAppWindow(address)
+          .then((child) => {
+            if (!child) {
+              return;
+            }
+            desktop.attachAppWindow(child, {
+              onLog: (message) => console.log(`[window] ${message}`),
+              onExit: () => {
+                stopAutoFetch();
+                desktop.stopHeartbeatWatchdog();
+                killActiveChildren();
+                console.log("桌面窗口已关闭，GitDeck 后端退出。");
+                process.exit(0);
+              }
+            });
+          })
+          .catch((error) => {
+            console.error(`启动桌面窗口失败：${error.stack || error}`);
+          });
       }
       desktop.startHeartbeatWatchdog();
     } else if (process.env.GITDECK_NO_OPEN !== "1" && process.platform === "win32") {
