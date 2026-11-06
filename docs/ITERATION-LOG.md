@@ -2,6 +2,18 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-06 - 工作目录内删改免审批，目录外照常审批
+
+- 目标：用户要求「仅限在当前 git 工作目录下删除/修改文件不要审批，超出工作目录再找我审批」，解决反复弹出的删除确认。
+- 根因（由 `~/.workbuddy/audit-log/2026-11-06.jsonl` 实证）：确认来自 `file-safety.bulk-delete.needs-approval`，payload 为 `count: 119~123 / threshold: 50`，目标是 `.workbuddy/scratch/api-test-*`。这是按**一次请求累计删除文件数**触发的批量删除保护，**与路径无关**；`node --test` 删临时 Git 仓库时一次删 100+ 文件即超阈值，待确认状态还会挂到同一请求后续命令上，所以连 `node --test | grep` 也被拦。此前「路径越界」「命令规则为空」两种推断均不成立：文件规则里工作区 `.` 的 read/write/delete 原本就是 `allow`。
+- 改动（三层，均不启用「完全访问」）：
+  - 用户级 `settings.json`：新增 `sandbox.safeDeleteBulkThreshold: 500`（默认 50，范围 1–99999），覆盖正常测试清理；超过 500 项的批量删除仍审批。文件规则不动，工作目录外的删除仍照常审批。
+  - 项目级 `<repo>/.codebuddy/settings.json`：仅新增 `permissions.allow`，放行 `node tools/clean-scratch.js` 与 `npm run clean:scratch`，只在本项目生效；不含 `sandbox` 块，避免覆盖用户级文件规则。
+  - `tools/clean-scratch.js`：新增 `--path <repo 相对路径>`（可重复），把「工作目录内删除」收拢到唯一受控入口。拒绝绝对路径、`..` 越界、符号链接，以及 `.git`、`node_modules`、`package.json`、`package-lock.json`、`data/repositories.json`、`data/server.log`、`.workbuddy/memory/`；用 `fs.rmSync` 走文件层，不是 shell 删除命令。
+- 文档：`AGENTS.md` 新增「权限边界（已实证）」表并修正旧推断；`AGENT-GUIDE.md`、`TESTING.md` 同步 `--path` 用法与「清理命令单独执行」约定。
+- 验证：`node --test` 29/29（新增 `tests/clean-scratch.test.js` 4 条边界断言）、`node tools/check-docs.js` 通过；跑完整测试（100+ 文件删除）后审计日志新增 0 条 `needs-approval`，清理 4 个残留目录（每个含 100+ 文件）全程免审批。
+- 注意：清理命令必须单独执行；与 `&&` / `;` / `|` 拼成复合命令时，白名单要求所有子命令命中，会重新触发审批。
+
 ## 2026-11-06 - 修正 .sln 过滤：与 Git 无关，直接扫描目录
 
 - 目标：用户反馈开启 `.sln` 按钮后列表为空——原实现只在 Git 变更条目里筛 `.sln`，已提交/未改动的文件不显示。

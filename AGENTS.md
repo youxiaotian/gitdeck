@@ -70,11 +70,22 @@
 - **禁止**在项目根目录散落 `.tmp-*`、`.ui-*`、`.chrome-*`、`.commit-*` 等临时目录。
 - **禁止**在 `<repo>` 之外创建测试仓库或临时目录（包括父目录、用户目录、系统临时目录）。
 - 用 `node tools/clean-scratch.js --new <prefix>` 在 `<repo>/.workbuddy/scratch/` 内创建唯一临时目录，拿到的路径始终在 `<repo>` 内。
-- 清理统一用 `node tools/clean-scratch.js`（先加 `--dry-run` 预览）。该脚本的路径由 `__dirname` 推导，不接受路径参数，只删除沙盒第一层条目，不跟随符号链接，不递归到沙盒之外。
-- **禁止** `rm -rf`、通配符批量删除、以及 PowerShell `Add-Type` 调回收站 API 来清理临时产物。
+- 清理统一用 `node tools/clean-scratch.js`（先加 `--dry-run` 预览）。该脚本的 `ROOT` 由 `__dirname` 推导，只删除沙盒第一层条目，不跟随符号链接，不递归到沙盒之外。
+- 删除工作目录内**任意**指定文件/目录时用 `--path <repo 相对路径>`（可重复），例如 `node tools/clean-scratch.js --path .workbuddy/scratch/probe.txt`。绝对路径、`..` 越界、符号链接、以及 `.git`、`node_modules`、`package.json`、`data/repositories.json`、`data/server.log`、`.workbuddy/memory/` 等受保护目标一律拒绝。
+- **禁止** `rm -rf`、通配符批量删除、以及 PowerShell `Add-Type` 调回收站 API 来清理临时产物。工作目录之外的删除不走本工具，需走正常审批。
 - `data/`、`data/repositories.json`、`data/server.log`、`.workbuddy/memory/` 是用户数据或运行数据，永远不在清理范围内。
 
-原因：默认权限下「工作区外路径」「递归/批量删除」「执行脚本命令」各自都会触发用户确认，三者叠加会反复打断。把临时产物收拢到**工作区内的单一目录**，再用**固定脚本精确删除**，既不需要「允许完全访问」，也不会误伤业务数据。
+**权限边界（已实证，2026-11-06）**：反复弹出的确认并不是「路径越界」或「命令规则为空」，而是 `file-safety.bulk-delete.needs-approval` —— 按**一次请求累计删除文件数**触发的批量删除保护（默认阈值 50），与路径无关。`node --test` 删除临时 Git 仓库时一次删 100+ 个文件即超过阈值，且该待确认状态会挂到同一请求后续命令上，导致连 `node --test | grep` 也被拦。
+
+落地配置：
+
+| 层 | 位置 | 内容 |
+| --- | --- | --- |
+| 路径边界 | 用户级 `settings.json` 的 `sandbox.orderedRules.file` | 工作区 `.` 的 read/write/delete 原本就是 `allow`；工作区外没有 allow 规则，仍照常审批 |
+| 数量阈值 | 用户级 `settings.json` 的 `sandbox.safeDeleteBulkThreshold` | 由 50 调为 500，覆盖正常测试清理；超过 500 项的批量删除仍会审批 |
+| 命令白名单 | `<repo>/.codebuddy/settings.json` 的 `permissions.allow` | 只放行 `node tools/clean-scratch.js` 与 `npm run clean:scratch`，仅在本项目生效 |
+
+因此「`<repo>` 内删改免审批、`<repo>` 外照常审批」由文件规则保证，白名单只是给唯一受控删除入口开口子；脚本自身的 `ROOT` 硬边界保证它删不到工作目录之外。清理命令要**单独执行**，不要与 `&&` / `;` / `|` 拼成复合命令，否则白名单要求所有子命令都命中，会重新触发审批。
 
 ## 模块结构
 

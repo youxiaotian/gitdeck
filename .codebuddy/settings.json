@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node tools/clean-scratch.js:*)",
+      "Bash(node tools/clean-scratch.js *)",
+      "Bash(npm run clean:scratch:*)",
+      "Bash(npm run clean:scratch *)"
+    ]
+  }
+}

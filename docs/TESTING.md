@@ -151,5 +151,7 @@ node tools/check-docs.js
 - 所有临时目录、测试仓库、裸远端、Chrome profile 和探针脚本**一律放在 `.workbuddy/scratch/` 内**，用 `node tools/clean-scratch.js --new <prefix>` 创建。
 - 不再在项目根目录创建 `.tmp-*`、`.ui-*`、`.chrome-*` 等散落目录。
 - 不再把测试仓库放到 `<repo>` 之外的父目录、用户目录或系统临时目录。
-- 清理只运行 `node tools/clean-scratch.js`；不使用 `rm -rf` 或通配符批量删除。
+- 清理只运行 `node tools/clean-scratch.js`；删除工作目录内指定目标用 `--path <repo 相对路径>`；不使用 `rm -rf` 或通配符批量删除。
+- 清理命令单独执行，不拼 `&&` / `;` / `|` 复合命令，避免命令白名单失效重新触发审批。
+- `tests/clean-scratch.test.js` 覆盖 `--path` 越界拒绝、受保护目标拒绝、dry-run 不落盘、`.gitkeep` 保留与项目级白名单范围。
 - `data/repositories.json` 是用户数据，测试不得重置；禁止在用户业务仓库上执行破坏性验证。
