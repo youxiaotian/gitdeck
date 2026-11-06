@@ -749,10 +749,10 @@
         function heartbeat() {
           post("/api/heartbeat");
         }
-        // 窗口被最小化/遮挡时 Chrome 会节流定时器，回到前台立刻补一次心跳，
-        // 避免服务端把「心跳被节流」误判成「窗口已关闭」而退出。
+        // 服务退出已由 --app 窗口进程的 exit 事件决定，不再需要每 5 秒定时上报。
+        // 只在页面加载、回到前台、获得焦点、网络恢复时上报一次，供可选的
+        // GITDECK_HEARTBEAT=1 看门狗使用；运行期不再有任何前端定时器。
         heartbeat();
-        setInterval(heartbeat, 5000);
         document.addEventListener("visibilitychange", function () {
           if (!document.hidden) heartbeat();
         });

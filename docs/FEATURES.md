@@ -36,7 +36,7 @@
 - `listDirectories()` 为内置目录选择器提供数据。
 - 前端：`openAddRepositoryModal()`、`openScanModal()`、`openDirectoryPicker()`、`renderDirectoryPicker()`。
 - 多选：`state.directoryMultiple` / `directorySelected`（`Set`，跨目录保留）、`handleDirectoryCheck()`、`updateDirectorySelectionUI()`、`syncDirectoryRowChecks()`、`selectAllVisibleRepositories()`、`addSelectedDirectories()`；批量添加复用 `POST /api/repositories` 串行落盘，单次上限 50 个，失败项留在选择集里可重试。
-- 滚动性能：`public/styles.css` 的 `.directory-list`（`contain: layout paint`、`overscroll-behavior: contain`）与 `.directory-backdrop`（无 `backdrop-filter`）；`hideContextMenu()` 用 passive 监听且菜单已隐藏时不写 DOM；自动刷新在目录选择器打开时跳过。
+- 滚动性能：`public/styles.css` 的 `.directory-list`（`contain: layout paint`、`overscroll-behavior: contain`）与 `.directory-backdrop`（无 `backdrop-filter`）；`hideContextMenu()` 用 passive 监听且菜单已隐藏时不写 DOM；已无自动刷新定时器，滚动期间不会有后台整页重绘。
 
 ## 工作区仓库维护
 
@@ -60,7 +60,7 @@
 **用户行为**
 
 - 显示当前工作区中每个仓库的分支、文件改动数、领先/落后和最近提交。
-- 每 20 秒自动刷新，也支持手动刷新。
+- 打开应用时读取一次状态；之后不做任何后台自动刷新，只在用户点「刷新」或执行 Git 动作后更新。避免持续 `git status` 与用户正在操作的 TortoiseGit / IDE 抢同一个 `.git`。
 
 **实现位置**
 
@@ -190,19 +190,12 @@
 
 - 单仓库抓取、快进拉取、推送。
 - 多选仓库后批量抓取、拉取、推送。
-- 服务端定时后台 fetch（默认 5 分钟，`GITDECK_AUTO_FETCH_MS` 可调、`GITDECK_AUTO_FETCH=0` 关闭）：
-  自动对有远端的仓库执行 `git fetch --all`（不含 prune），保持 `origin/*` 快照最新；
-  跳过正被用户动作占用的仓库，失败静默不弹错。
-- 后台抓取对用户操作让路：启动后延迟 60 秒才跑首轮（`GITDECK_AUTO_FETCH_DELAY_MS` 可调）；
-  仓库存在近期 `.git/*.lock`（正被 TortoiseGit / IDE / 用户动作使用）时整仓跳过；
-  禁用 fetch 后的 `git maintenance --auto`，避免 gc / pack-refs 抢 `.git` 目录；
-  连续失败的仓库退避 15 分钟，并发限制为 2。
+- **全部由用户主动触发，服务端没有任何定时抓取**。需要最新的 `origin/*` 时自己点抓取 / 拉取；GitDeck 不会在你使用 TortoiseGit / IDE 时后台碰仓库。此前做过定时后台 fetch，因与用户 GUI 操作撞车已整体移除，不再保留开关或「让路」策略。
 
 **实现位置**
 
 - 动作：`fetch`、`pull`、`push`
 - 拉取固定使用 `git pull --ff-only`
-- 定时抓取：`src/auto-fetch.js`（`startAutoFetch()`、`hasActiveGitLock()`，server.js 监听后启动）
 - 前端：`requestRepoAction()`、`requestBulkAction()`、`executeBulkAction()`
 
 ## TortoiseGit 外部界面
@@ -234,7 +227,7 @@
 **实现位置**
 
 - `src/desktop.js`：`findBrowser()`、`launchAppWindow()`、`attachAppWindow()`、`createWindowLifecycle()`、`probeInstance()`、可选的 `createHeartbeatWatchdog()` / `startHeartbeatWatchdog()` / `touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`
-- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位；窗口退出时停掉定时抓取与在飞 git 子进程后结束进程；注册文件日志与全局异常兜底
+- `server.js`：`GITDECK_DESKTOP=1` 时固定端口、单实例让位；窗口退出时收敛在飞 git 子进程后结束进程（已无定时抓取）；注册文件日志与全局异常兜底
 - `src/process.js`：`killActiveChildren()`、`tools/restart-server.ps1` 的 `Stop-GitDescendants()`，避免强杀留下 `.lock`
 - `src/logger.js`：把 console 输出同步写入 `data/server.log`，超 256 KB 轮转为 `.1`
 - 接口：`GET /api/ping`、`POST /api/heartbeat`、`GET/POST /api/window`

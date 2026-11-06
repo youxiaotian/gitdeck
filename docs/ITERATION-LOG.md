@@ -2,6 +2,20 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-06 - 移除全部后台自动抓取与定时刷新
+
+- 用户反馈：TortoiseGit Log 打开后持续转圈，明确要求「把后台自动刷新的逻辑下掉」，之后自己主动拉取，不要自动功能。
+- 实证：`data/server.log` 中 `17:37:43 → 17:38:14` 有一轮 `[auto-fetch] 完成 21/23 个仓库，用时 40s`，覆盖用户打开 Log 的时间段；两个远端不可达的仓库各阻塞数十秒。前端另有 `init()` 中每 20 秒一次的 `refreshAllSummaries()`，对当前工作区所有仓库并发 `git status`，不受 `GITDECK_AUTO_FETCH=0` 控制。
+- 结论：不再做任何「让路」调优，直接移除两类后台动作。用户需要最新状态时点「刷新」，需要远端更新时主动执行抓取 / 拉取。
+- 改动：
+  - 删除 `src/auto-fetch.js` 与 `tests/auto-fetch.test.js`；`server.js` 不再 require / start / stop auto-fetch；`src/config.js` 删除全部 `AUTO_FETCH_*` 常量与环境变量。
+  - `public/app.js` 删除 `state.autoRefreshTimer` 与 `init()` 里的 20s `setInterval`；保留启动时一次状态读取、「刷新」按钮、Git 动作后的刷新。
+  - `public/index.html` 移除每 5 秒一次的心跳定时上报；保留页面加载及可见 / 焦点 / 网络恢复时的一次性上报（供可选看门狗），运行期不再有前端定时器。
+  - 桌面模式关窗退出改为 `stopHeartbeatWatchdog()` + `killActiveChildren()`，不再涉及抓取定时器。
+  - 新增防回归断言：源码中不得出现 auto-fetch / AUTO_FETCH / 前端定时刷新，且后台抓取模块与其测试文件不得存在。
+- 文档同步：`AGENTS.md`、`ARCHITECTURE.md`、`FEATURES.md`、`DEVELOPMENT.md`、`TROUBLESHOOTING.md`、`API.md`、`MAP.md`、`UI-MAP.md`、`TESTING.md`、`DECISIONS.md`、`ROADMAP.md`。
+- 注意：下方历史条目中保留 auto-fetch 的实现记录，属于当时事实，不作为当前行为说明。
+
 ## 2026-11-06 - 关窗口即退后端；后台 fetch 不再抢用户仓库
 
 - 用户反馈：关闭应用后后端不重启（旧代码一直在跑），「关了软件就应该把后端关掉，打开软件再开后端」；同时 TortoiseGit Log 窗口打开后持续转圈、标题「未响应」，怀疑 GitDeck 把仓库锁死。

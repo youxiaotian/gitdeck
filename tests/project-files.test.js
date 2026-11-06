@@ -93,7 +93,7 @@ test("看门狗不再「心跳一断就退出」，且默认超时足够宽", as
   assert.match(config, /120000/, "显式启用时超时不能退回 30 秒这种易误杀的值");
   assert.match(config, /GITDECK_HEARTBEAT === "1"/, "自动退出必须显式开启");
   assert.match(config, /\?\s*Number\(process\.env\.GITDECK_HEARTBEAT_TIMEOUT_MS\)[\s\S]{0,40}:\s*0/,
-    "默认必须是常驻（0 = 不自动退出）");
+    "默认不启用心跳自动退出（0 = 由窗口进程 exit 决定）");
 });
 
 test("前端心跳在窗口恢复可见时补发，任何鉴权 API 也会续命", async () => {
@@ -104,6 +104,11 @@ test("前端心跳在窗口恢复可见时补发，任何鉴权 API 也会续命
   for (const event of ["visibilitychange", "pageshow", "focus", "online"]) {
     assert.ok(html.includes(event), `心跳应在 ${event} 时补发`);
   }
+  assert.doesNotMatch(
+    html,
+    /setInterval\(heartbeat/,
+    "不得再有 5 秒一次的定时心跳上报"
+  );
   const trusted = routes.indexOf("!isTrustedRequest(request)");
   const touch = routes.indexOf("touchHeartbeat();", trusted);
   assert.ok(trusted > 0 && touch > trusted, "鉴权通过后应刷新心跳");
@@ -130,7 +135,7 @@ test("目录选择器滚动不再每帧写 DOM、不再做全屏模糊与整页�
     "隐藏状态下不能重复写 hidden 属性，否则每次滚动都触发样式失效");
   assert.match(app, /capture: true, passive: true/, "滚动监听必须 passive");
   assert.match(app, /if \(!elements\.directoryPickerBackdrop\.hidden\)/,
-    "目录选择器打开时要跳过后台整页重绘");
+    "目录选择器可见性判断仍保留（Esc / 外部点击等交互）");
   const backdrop = css.slice(
     css.indexOf(".directory-backdrop {"),
     css.indexOf("body.modal-open {")
@@ -392,18 +397,15 @@ test("解决方案读取失败必须明确报错，start.cmd 能真正重启后�
   assert.match(restartScript, /Stop-Process/);
 });
 
-test("桌面窗口进程退出即关闭后端，后台 fetch 不再启动即抢仓库", async () => {
-  const [desktop, server, restartScript, config, autoFetch, processModule] =
-    await Promise.all(
-      [
-        ["src", "desktop.js"],
-        ["server.js"],
-        ["tools", "restart-server.ps1"],
-        ["src", "config.js"],
-        ["src", "auto-fetch.js"],
-        ["src", "process.js"]
-      ].map((parts) => fs.readFile(path.join(ROOT, ...parts), "utf8"))
-    );
+test("桌面窗口进程退出即关闭后端", async () => {
+  const [desktop, server, restartScript, processModule] = await Promise.all(
+    [
+      ["src", "desktop.js"],
+      ["server.js"],
+      ["tools", "restart-server.ps1"],
+      ["src", "process.js"]
+    ].map((parts) => fs.readFile(path.join(ROOT, ...parts), "utf8"))
+  );
 
   assert.match(
     desktop,
@@ -425,7 +427,43 @@ test("桌面窗口进程退出即关闭后端，后台 fetch 不再启动即抢�
     /--app=http:\/\/127\.0\.0\.1:\$port/,
     "重启时应精确收掉旧 GitDeck 窗口，避免留下孤儿窗口"
   );
-  assert.match(config, /AUTO_FETCH_INITIAL_DELAY_MS/);
-  assert.match(autoFetch, /maintenance\.auto=false/);
   assert.match(processModule, /activeChildren/);
+});
+
+test("不再有任何后台自动抓取或定时状态刷新", async () => {
+  const [server, config, app] = await Promise.all(
+    [
+      ["server.js"],
+      ["src", "config.js"],
+      ["public", "app.js"]
+    ].map((parts) => fs.readFile(path.join(ROOT, ...parts), "utf8"))
+  );
+
+  assert.doesNotMatch(server, /auto-fetch|startAutoFetch|stopAutoFetch/);
+  assert.doesNotMatch(config, /AUTO_FETCH/);
+  assert.doesNotMatch(
+    app,
+    /autoRefreshTimer|setInterval/,
+    "前端不得再注册定时状态刷新"
+  );
+  assert.match(
+    app,
+    /refreshAllSummaries\(\{ force: true \}\)/,
+    "手动刷新入口必须保留"
+  );
+  const exists = async (...parts) =>
+    fs.access(path.join(ROOT, ...parts)).then(
+      () => true,
+      () => false
+    );
+  assert.equal(
+    await exists("src", "auto-fetch.js"),
+    false,
+    "后台抓取模块应已删除"
+  );
+  assert.equal(
+    await exists("tests", "auto-fetch.test.js"),
+    false,
+    "后台抓取的测试应一并删除"
+  );
 });

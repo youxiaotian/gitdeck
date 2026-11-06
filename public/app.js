@@ -75,7 +75,6 @@
     menuRepositoryId: null,
     detailRequest: 0,
     previousFocus: null,
-    autoRefreshTimer: null,
     version: "1.0.0"
   };
 
@@ -225,21 +224,13 @@
     }
     render();
 
+    // 只在启动时读一次状态。后台定时刷新会持续对当前工作区所有仓库跑
+    // git status，用户正在用 TortoiseGit / IDE 操作同一个 .git 时容易撞车。
+    // 之后一律由用户点「刷新」，或执行 Git 动作后主动更新。
     if (activeRepositories.length) {
       await refreshAllSummaries({ quiet: true });
       await selectRepository(activeRepositories[0].id);
     }
-
-    state.autoRefreshTimer = window.setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-      // 目录选择器打开时不做整页重绘：后台重建 DOM 会让正在滚动的列表明显掉帧。
-      if (!elements.directoryPickerBackdrop.hidden) {
-        return;
-      }
-      refreshAllSummaries({ quiet: true });
-    }, 20000);
   }
 
   function resolveInitialWorkspaceId() {

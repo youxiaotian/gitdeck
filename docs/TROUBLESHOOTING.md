@@ -25,7 +25,7 @@ curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:4321/
 
 当前版本：
 
-- 服务**默认常驻**，心跳中断不会导致退出；只有显式设置 `GITDECK_HEARTBEAT=1` 才启用自动退出，且带 120 秒超时、15 秒确认窗口和睡眠挂起感知。
+- 服务**关闭窗口即退出**（依据 `--app` 窗口进程的 `exit` 事件），重新运行 `.\start.cmd` 拉起；心跳中断不会误杀，只有显式设置 `GITDECK_HEARTBEAT=1` 才额外启用心跳自动退出，且带 120 秒超时、15 秒确认窗口和睡眠挂起感知。
 - 启动、看门狗判定、未捕获异常堆栈都写入 `data/server.log`（超过 256 KB 轮转为 `server.log.1`），隐藏窗口启动时也能查。
 - 未捕获的异步异常会记录堆栈并让服务继续运行，不再静默终止进程。
 
@@ -192,9 +192,9 @@ Get-Content data/repositories.json
 
 ## TortoiseGit / IDE 打开仓库时转圈或报「仓库被占用」
 
-后台定时抓取会在用户操作期间碰到同一仓库，默认已做让路：首轮延迟 60 秒、遇到近期 `.git/*.lock` 整仓跳过、禁用 `git maintenance --auto`、失败退避 15 分钟、并发 2。
+GitDeck **不再有任何碰用户仓库的后台定时任务**：没有定时 `git fetch --all`，也没有每 20 秒自动跑的 `git status`。仓库状态只在打开应用时读一次，之后由用户点「刷新」或执行 Git 动作后才更新；远端更新由用户主动抓取 / 拉取。
 
-排查顺序：
+如果仍然转圈，排查顺序：
 
 ```powershell
 Get-Content .\data\server.log -Tail 40
@@ -202,8 +202,8 @@ Get-ChildItem "<用户仓库>/.git" -Recurse -Force -File -Filter "*.lock" |
   Select-Object FullName, LastWriteTime
 ```
 
+- 日志里若出现 `[auto-fetch]`，说明运行中的服务还是旧代码；关掉窗口后重新运行 `.\start.cmd`。
 - 锁文件时间若是很久以前（几周、几个月），通常是历史残留而不是 GitDeck 正在占用；确认没有 Git / IDE 在操作后再自行处理。**GitDeck 不会删除用户仓库里的任何文件。**
-- 想彻底排除后台抓取影响：设置 `GITDECK_AUTO_FETCH=0` 后重新运行 `.\start.cmd`；也可用 `GITDECK_AUTO_FETCH_MS` 拉长间隔、`GITDECK_AUTO_FETCH_DELAY_MS` 调整首轮延迟。
 - 若 TortoiseGit 持续「未响应」但系统里没有 git 子进程、仓库也没有近期锁，多半是它自身在 `<All Branches>` 模式下绘制大量远端分支图；可把范围切到当前分支，或清理不再需要的 `origin/*` 远程跟踪分支。
 
 ## 选中 `.sln` 按钮后提示「目录下没有 .sln 文件」

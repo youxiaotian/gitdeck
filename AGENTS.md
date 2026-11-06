@@ -52,7 +52,7 @@
 - `start.cmd` 仍会先调用 `tools/restart-server.ps1`：精确停掉占用端口且运行 `server.js` 的旧进程，并先收敛它的 `git.exe` 子进程，覆盖旧版常驻服务残留或窗口未关时重复运行。不要删掉这一步，否则新接口会一直返回 404，界面会连着旧代码。
 - 前端调用后端新增接口失败时，必须显示明确错误与重启指引，**不能把请求失败渲染成「没有数据」**（曾因此把 `.sln` 404 误报为「目录下没有 .sln 文件」）。
 - `start.cmd` 的 `rem` 注释**只能用 ASCII，且文件必须保持 CRLF**：即便有 `chcp 65001`，`cmd.exe` 仍会把部分 UTF-8 中文注释截断后当成命令执行。`tests/project-files.test.js` 有对应断言。
-- 后台 `auto-fetch` 会在用户使用 TortoiseGit / IDE 时碰用户仓库：首轮延迟 60s、遇到近期 `.git/*.lock` 整仓跳过、禁用 fetch 后的 auto maintenance、失败仓库退避 15 分钟、并发 2，`GITDECK_AUTO_FETCH=0` 可完全关闭。改这块前先想清楚「用户此刻正在操作这个仓库」的情形。
+- **禁止后台自动操作用户仓库**：不要注册定时 `git fetch`、定时 `git status` / 整页刷新等任务。抓取与状态刷新只能由用户主动触发（点「刷新」、执行 Git 动作、首次打开应用时读一次）。曾因后台 auto-fetch 与前端 20 秒轮询和 TortoiseGit Log 撞车，用户明确要求彻底移除，不再做「让路调优」。`tests/project-files.test.js` 有防回归断言。
 
 ### Git 行为
 

@@ -5,6 +5,8 @@
 // 桌面模式（GITDECK_DESKTOP=1）：固定端口、单实例、独立 profile 的 --app 窗口，
 //   窗口进程退出即关闭后端（下次运行 .\start.cmd 重新拉起后台）。
 // 浏览器模式（默认）：端口自增、自动打开浏览器标签页，服务常驻。
+// 修改注意：不要在服务进程里注册任何定时任务去碰用户仓库。抓取与状态刷新
+//   一律由用户主动触发，后台 fetch / 前端轮询曾干扰 TortoiseGit Log。
 
 const http = require("node:http");
 const { spawn } = require("node:child_process");
@@ -13,7 +15,6 @@ const { handleApi } = require("./src/routes");
 const { sendError } = require("./src/http");
 const { serveStatic } = require("./src/static");
 const desktop = require("./src/desktop");
-const { startAutoFetch, stopAutoFetch } = require("./src/auto-fetch");
 const { killActiveChildren } = require("./src/process");
 const { installFileLogging, LOG_FILE } = require("./src/logger");
 
@@ -89,6 +90,7 @@ async function main() {
     console.log(`GitDeck 已启动：${address}`);
     console.log(`仓库数据目录：${DATA_ROOT}`);
     console.log(`运行日志：${LOG_FILE}`);
+    console.log("后台自动抓取已移除；抓取与刷新均由用户主动触发。");
 
     if (IS_DESKTOP) {
       if (process.env.GITDECK_NO_OPEN !== "1") {
@@ -101,7 +103,6 @@ async function main() {
             desktop.attachAppWindow(child, {
               onLog: (message) => console.log(`[window] ${message}`),
               onExit: () => {
-                stopAutoFetch();
                 desktop.stopHeartbeatWatchdog();
                 killActiveChildren();
                 console.log("桌面窗口已关闭，GitDeck 后端退出。");
@@ -123,12 +124,9 @@ async function main() {
         .on("error", (error) => console.error(`打开浏览器失败：${error.message}`))
         .unref();
     }
-
-    startAutoFetch();
   });
 
   server.on("close", () => {
-    stopAutoFetch();
     console.log("HTTP 服务已关闭。");
   });
 }

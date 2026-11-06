@@ -25,7 +25,7 @@ node server.js
 1. 脚本先调用 `tools/restart-server.ps1` 清理旧后端，再以隐藏窗口启动 `server.js`；
 2. 自动打开独立 `data/chrome-profile` 的 `--app` 桌面窗口（不复用日常 Chrome 实例）；
 3. **关闭这个窗口即结束后端服务**；下次双击 `.\start.cmd` 重新拉起，加载的一定是最新后端代码；
-4. 退出前会停掉定时抓取并收敛在飞的 `git.exe`，避免留下 `.lock` 文件。
+4. 退出前会收敛在飞的 `git.exe`，避免留下 `.lock` 文件；服务没有后台定时任务需要停止。
 
 开发调试可直接 `node server.js`（浏览器模式：端口自增、服务常驻），按 `Ctrl+C` 停止；此模式不因关闭标签页而退出。
 
@@ -41,10 +41,9 @@ node server.js
 | `GITDECK_DATA_DIR` | 覆盖运行数据目录 |
 | `GITDECK_NO_OPEN` | `1` 表示不自动打开浏览器（桌面模式下也不会启用窗口生命周期） |
 | `GITDECK_DESKTOP` | `1` 启用桌面窗口模式，`start.cmd` 自动设置 |
-| `GITDECK_AUTO_FETCH` | `0` 完全关闭定时后台 fetch |
-| `GITDECK_AUTO_FETCH_MS` | 抓取间隔，默认 5 分钟 |
-| `GITDECK_AUTO_FETCH_DELAY_MS` | 启动后首轮抓取延迟，默认 60 秒，`0` 表示立即 |
 | `GITDECK_HEARTBEAT` | `1` 时额外启用心跳自动退出（默认只按窗口进程生命周期退出） |
+
+已移除 `GITDECK_AUTO_FETCH*` 系列变量：后台自动抓取功能整体删除，抓取与状态刷新一律由用户主动触发。
 | `NODE_ENV` | `production` 时隐藏 500 内部错误细节 |
 
 ## 常用命令
