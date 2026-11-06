@@ -1767,6 +1767,74 @@ body.is-resizing * {
   font-weight: 700;
 }
 
+.solution-filter-toggle {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid #d8d4ca;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.solution-filter-toggle:hover {
+  border-color: #9db4ff;
+  background: #eef2ff;
+  color: #3b5bdb;
+}
+
+.solution-filter-toggle.active {
+  border-color: #3b5bdb;
+  background: #3b5bdb;
+  color: #fff;
+}
+
+.solution-filter-toggle .solution-badge {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 3px;
+  background: #2d2d2d;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.solution-filter-toggle.active .solution-badge {
+  background: #fff;
+  color: #3b5bdb;
+}
+
+.solution-file .tree-file-open::after {
+  content: "VS";
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #2d2d2d;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.solution-open-button {
+  border-color: #3b5bdb;
+  background: #3b5bdb;
+  color: #fff;
+}
+
+.solution-open-button:hover {
+  background: #2f4fc0;
+}
+
 .file-filter-bar {
   display: flex;
   flex-wrap: wrap;

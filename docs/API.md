@@ -319,6 +319,7 @@
 | `openExplorer` | `{}` | 打开仓库目录 |
 | `openTerminal` | `{}` | 在仓库目录打开终端 |
 | `openTortoiseGit` | `{}` | 用当前仓库打开 TortoiseGit 日志界面 |
+| `openVisualStudio` | `{ "path" }` | 用 Visual Studio 打开指定 `.sln` 解决方案（`path` 必须相对仓库且经过 `validateRepositoryPath` 校验） |
 
 响应结构：
 

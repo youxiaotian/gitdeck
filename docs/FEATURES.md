@@ -76,17 +76,21 @@
 - 变更文件按真实目录层级显示。
 - 可在文件夹树视图和带完整路径的平铺列表之间切换。
 - 支持全部、未暂存、已暂存、未跟踪筛选。
+- 文件列表工具区提供 `.sln` 过滤按钮：点击后只显示仓库内的 Visual Studio 解决方案文件，与状态筛选叠加生效（即在当前状态结果中再筛 `.sln`）。
+- 双击 `.sln` 文件（或在选中它后点击预览区的「用 Visual Studio 打开」）会用本机 Visual Studio 直接打开该解决方案。
 - 点击文件立即显示 Diff。
 - 状态徽标使用颜色区分：新增/未跟踪绿色，删除红色，修改/重命名蓝色。
 
 **实现位置**
 
 - `collectChangedEntries()`
-- `renderFileTree()`、`renderTreeNode()`
-- `renderFlatFileList()`、`updateFileViewToggle()`
+- `renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`
+- `updateFileViewToggle()`、`getVisibleEntries()`（统一的可见文件筛选，含 `.sln` 后缀判断）
+- `isSolutionFile()`、`openInVisualStudio()`（`elements.fileGroups` 的 `dblclick` 监听 + 预览区 `openSolution` 动作）
+- 后端：`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）
 - `fileStatus()`
 - `getPreviewKey()`、`loadFilePreview()`、`renderDiff()`
-- CSS：`.file-status.added`、`.deleted`、`.modified`、`.conflict`
+- CSS：`.file-status.added`、`.deleted`、`.modified`、`.conflict`、`solution-filter-toggle`、`.solution-file`、`.solution-open-button`
 
 ## 内联编辑
 

@@ -58,7 +58,8 @@
 | 仓库列表与拖拽排序 | `renderRepoList()`、`handleRepoDragStart/Over/Drop()`、`moveRepositoryOrder()` |
 | 工作区下拉 | `renderWorkspacePicker()`、`openWorkspaceDropdown()`、`closeWorkspaceDropdown()` |
 | 主面板/仓库视图 | `renderMain()`、`renderRepositoryView()` |
-| 变更文件树/平铺 | `renderChanges()`、`renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`、`updateFileViewToggle()` |
+| 变更文件树/平铺 | `renderChanges()`、`renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`、`updateFileViewToggle()`、`getVisibleEntries()` |
+| .sln 过滤与用 VS 打开 | `solutionFilter` 状态、`toggle-solution-filter` 按钮、`isSolutionFile()`、`openInVisualStudio()`、`elements.fileGroups` 的 `dblclick` 监听；后端 `shell.openVisualStudio()`、`git-actions` 的 `openVisualStudio` 动作 |
 | 文件状态 | `fileStatus()`、`collectChangedEntries()` |
 | Diff/编辑器 | `loadFilePreview()`、`renderPreviewHeader()`、`renderEditor()`、`saveEditor()`、`revertEditorChanges()` |
 | 选中提交 | `updateComposerState()`、`submitCommit()` |

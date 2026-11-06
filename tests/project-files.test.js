@@ -177,3 +177,77 @@ test("目录选择器多选批量添加：跨目录保留与增量更新", async
   assert.match(css, /\.directory-check input \{/);
   assert.match(css, /accent-color: var\(--green\)/);
 });
+
+test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async () => {
+  const [app, html, shell, css, actions] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "index.html"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "shell.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "styles.css"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "git-actions.js"), "utf8")
+  ]);
+
+  // 前端：文件列表工具区有 .sln 过滤按钮，且点击切换 solutionFilter。
+  assert.match(
+    html,
+    /data-action="toggle-solution-filter"/,
+    "文件列表工具区应提供 .sln 过滤按钮"
+  );
+  assert.match(app, /state\.solutionFilter = false/, "应存在 solutionFilter 状态");
+  assert.match(
+    app,
+    /state\.solutionFilter = !state\.solutionFilter/,
+    "点击 .sln 按钮应切换 solutionFilter"
+  );
+  // 过滤逻辑：solutionFilter 打开时只保留 .sln 文件。
+  assert.match(
+    app,
+    /passesSolution[\s\S]{0,120}endsWith\("\.sln"\)/,
+    "可见文件筛选必须包含 .sln 后缀判断"
+  );
+  assert.match(app, /function getVisibleEntries\(/, "应抽出统一的可见文件筛选函数");
+  // 双击 .sln 行用 VS 打开；非 .sln 文件忽略。
+  assert.match(app, /elements\.fileGroups\.addEventListener\("dblclick"/, "应绑定文件列表双击事件");
+  assert.match(
+    app,
+    /const filePath = target\.dataset\.previewFile;[\s\S]{0,160}openInVisualStudio\(filePath\)/,
+    "双击 .sln 行应触发用 VS 打开"
+  );
+  assert.match(
+    app,
+    /function openInVisualStudio\(filePath\)[\s\S]{0,200}isSolutionFile\(filePath\)[\s\S]{0,200}performRepoAction\(state\.selectedId, "openVisualStudio"/,
+    "openInVisualStudio 必须经 isSolutionFile 校验后再发 openVisualStudio 动作"
+  );
+  assert.match(app, /filePath\.toLowerCase\(\)\.endsWith\("\.sln"\)/, "双击只响应 .sln 文件");
+  // 选中 .sln 时预览操作栏提供显式入口。
+  assert.match(
+    app,
+    /data-preview-action="openSolution"/,
+    "预览区应提供「用 Visual Studio 打开」按钮"
+  );
+
+  // 后端：动作白名单登记 openVisualStudio，并用仓库路径校验防止越界。
+  assert.match(
+    actions,
+    /case "openVisualStudio":/,
+    "runRepositoryAction 应登记 openVisualStudio 动作"
+  );
+  assert.match(
+    actions,
+    /validateRepositoryPath\(repository\.path, body\.path\)/,
+    "打开解决方案必须校验路径在仓库内，禁止越界"
+  );
+  assert.match(
+    shell,
+    /devenv\.exe/,
+    "shell 应定位 Visual Studio 的 devenv.exe"
+  );
+  assert.match(shell, /vswhere\.exe/, "应优先用 vswhere 定位 VS 安装");
+  assert.match(shell, /Microsoft\.VisualStudio\.Component\.CoreEditor/, "vswhere 应筛选带编辑器内核的版本");
+  assert.match(shell, /function openVisualStudio\(/, "shell 应导出 openVisualStudio");
+  assert.match(shell, /module\.exports = \{[\s\S]*openVisualStudio/, "openVisualStudio 应被导出");
+
+  // 样式：过滤按钮激活态与 solution 行标记。
+  assert.match(css, /\.solution-filter-toggle \.solution-badge \{/);
+  assert.match(css, /\.solution-file \.tree-file-open::after/, "solution 文件应有 VS 标记");
+});

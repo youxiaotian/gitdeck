@@ -14,6 +14,16 @@
 - 已知限制：
 ```
 
+## 2026-11-06 - 文件列表支持 .sln 过滤并双击用 Visual Studio 打开
+
+- 目标：在变更文件列表（目录树/平铺）提供 `.sln` 过滤按钮，点一下只显示仓库内解决方案文件；双击 `.sln` 或预览区「用 Visual Studio 打开」直接用 VS 打开项目。
+- 改动：
+  - 前端 `index.html` 在文件列表工具区新增 `.sln` 过滤按钮（`data-action="toggle-solution-filter"`）；`app.js` 增加 `solutionFilter` 状态、`getVisibleEntries()` 统一筛选（状态筛选与 `.sln` 后缀叠加）、`isSolutionFile()`、`openInVisualStudio()`，`elements.fileGroups` 绑定 `dblclick` 只在 `.sln` 上触发，预览区对 `.sln` 额外渲染「用 Visual Studio 打开」按钮。
+  - 后端 `shell.openVisualStudio()` 用 `vswhere.exe` 定位 `devenv.exe`（回退 2022/2019 的 Community/Professional/Enterprise 目录），`git-actions` 登记 `openVisualStudio` 动作并经 `validateRepositoryPath` 校验路径在仓库内，禁止越界。
+- 数据/API 影响：新增仓库动作 `openVisualStudio`（仅 Windows），无数据模型变化。
+- 验证：`node --test` 通过；新增 `tests/project-files.test.js` 特性断言（按钮、筛选、双击、后端动作与路径校验、样式）；`node --check` 通过；手动 UI 验证前端改动 F5 生效、后端改动需重启 GitDeck。
+- 已知限制：仅 Windows 支持；未安装 Visual Studio 时给出「未找到 devenv.exe」提示。
+
 ## 2026-11-05 - 修复沙盒脚本在全新 clone 下不可用
 
 - 根因：`.workbuddy/` 被 `.gitignore` 忽略，clone 后该目录不存在；`tools/clean-scratch.js` 的 `assertBoundary()` 无条件对 `<repo>/.workbuddy` 执行 `realpathSync()`，直接抛 ENOENT，导致 `--new` / `--dry-run` / 清理全部不可用。

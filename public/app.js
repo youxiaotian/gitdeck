@@ -27,6 +27,7 @@
     contextHistoryKey: "",
     contextHistoryRequest: 0,
     fileFilter: "all",
+    solutionFilter: false,
     fileTreeMode: "tree",
     selectedFile: null,
     selectedFiles: new Set(),
@@ -122,6 +123,7 @@
     explorerCount: document.getElementById("explorerCount"),
     fileTreeTitle: document.getElementById("fileTreeTitle"),
     fileViewToggle: document.getElementById("fileViewToggle"),
+    solutionFilterToggle: document.getElementById("solutionFilterToggle"),
     fileFilterBar: document.getElementById("fileFilterBar"),
     batchSelectionCount: document.getElementById("batchSelectionCount"),
     batchStageButton: document.getElementById("batchStageButton"),
@@ -179,7 +181,8 @@
     stashPop: "Stash 已恢复",
     openExplorer: "已打开目录",
     openTerminal: "已打开终端",
-    openTortoiseGit: "已打开 TortoiseGit"
+    openTortoiseGit: "已打开 TortoiseGit",
+    openVisualStudio: "已用 Visual Studio 打开"
   };
 
   const actionFailureLabels = {
@@ -438,6 +441,17 @@
       }
     });
     elements.contextMenu.addEventListener("click", handleContextMenuClick);
+    elements.fileGroups.addEventListener("dblclick", (event) => {
+      const target = event.target.closest("[data-preview-file]");
+      if (!target) {
+        return;
+      }
+      const filePath = target.dataset.previewFile;
+      if (!filePath || !filePath.toLowerCase().endsWith(".sln")) {
+        return;
+      }
+      openInVisualStudio(filePath);
+    });
     document.addEventListener("click", handleDocumentClick);
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("keydown", handleKeydown);
@@ -1183,11 +1197,7 @@
         state.selectedFiles.delete(selectedPath);
       }
     }
-    const visibleEntries = entries.filter(
-      (entry) =>
-        state.fileFilter === "all" ||
-        entry.groups.has(state.fileFilter)
-    );
+    const visibleEntries = getVisibleEntries(entries);
     elements.explorerCount.textContent = String(visibleEntries.length);
     elements.fileFilterBar.querySelectorAll("[data-file-filter]").forEach(
       (button) => {
@@ -1293,6 +1303,27 @@
       );
   }
 
+  function getVisibleEntries(entries) {
+    const source =
+      entries ||
+      collectChangedEntries(
+        state.detail?.summary || {
+          staged: [],
+          unstaged: [],
+          untracked: [],
+          unmerged: []
+        }
+      );
+    return source.filter((entry) => {
+      const passesStatus =
+        state.fileFilter === "all" || entry.groups.has(state.fileFilter);
+      const passesSolution =
+        !state.solutionFilter ||
+        entry.path.toLowerCase().endsWith(".sln");
+      return passesStatus && passesSolution;
+    });
+  }
+
   function renderFileTree(entries) {
     updateFileViewToggle();
     updateBatchSelectionUi(entries);
@@ -1345,6 +1376,16 @@
       "aria-label",
       `切换为${nextMode}`
     );
+    if (elements.solutionFilterToggle) {
+      elements.solutionFilterToggle.classList.toggle(
+        "active",
+        state.solutionFilter
+      );
+      elements.solutionFilterToggle.setAttribute(
+        "aria-pressed",
+        String(state.solutionFilter)
+      );
+    }
   }
 
   function renderFlatFileList(entries) {
@@ -1363,12 +1404,17 @@
               : entry.groups.has("untracked")
                 ? "未跟踪"
                 : "工作区";
+        const solution = isSolutionFile(entry.path);
         return `
           <div
             class="tree-file-row flat-file-row ${
               state.selectedFile?.path === entry.path ? "selected" : ""
-            }"
-            title="${escapeHtml(entry.path)}"
+            } ${solution ? "solution-file" : ""}"
+            title="${escapeHtml(
+              solution
+                ? `${entry.path}　双击用 Visual Studio 打开`
+                : entry.path
+            )}"
           >
             <button
               class="tree-file-check ${batchSelected ? "checked" : ""}"
@@ -1458,13 +1504,18 @@
                 ? "未跟踪"
                 : "工作区";
         const batchSelected = state.selectedFiles.has(entry.path);
+        const solution = isSolutionFile(entry.path);
         return `
           <div
             class="tree-file-row ${
               state.selectedFile?.path === entry.path ? "selected" : ""
-            }"
+            } ${solution ? "solution-file" : ""}"
             style="--tree-depth:${depth}"
-            title="${escapeHtml(entry.path)}"
+            title="${escapeHtml(
+              solution
+                ? `${entry.path}　双击用 Visual Studio 打开`
+                : entry.path
+            )}"
           >
             <button
               class="tree-file-check ${batchSelected ? "checked" : ""}"
@@ -1537,6 +1588,13 @@
           </button>
         `
         : "";
+    const solutionButton = isSolutionFile(selected.path)
+      ? `
+        <button class="button button-primary solution-open-button" type="button" data-preview-action="openSolution">
+          ${icon("external-link")}用 Visual Studio 打开
+        </button>
+      `
+      : "";
     const editActions =
       state.previewMode === "edit"
         ? `
@@ -1560,6 +1618,7 @@
       >${escapeHtml(status.letter)}</span>
       ${stageButton}
       ${discardButton}
+      ${solutionButton}
       <span class="preview-status ${
         state.editor.dirty ? "dirty" : ""
       }" data-preview-status>
@@ -1812,6 +1871,23 @@
     renderChanges(state.detail.summary);
   }
 
+  function isSolutionFile(filePath) {
+    return Boolean(filePath) && filePath.toLowerCase().endsWith(".sln");
+  }
+
+  function openInVisualStudio(filePath) {
+    if (!state.selectedId) {
+      return;
+    }
+    if (!isSolutionFile(filePath)) {
+      showToast("不是解决方案文件", "只能双击打开 .sln 文件。", "warning");
+      return;
+    }
+    performRepoAction(state.selectedId, "openVisualStudio", {
+      path: filePath
+    }).catch(() => {});
+  }
+
   function requestPreviewMode(mode) {
     if (!state.selectedFile || state.previewMode === mode) {
       return;
@@ -1871,6 +1947,9 @@
       performRepoAction(state.selectedId, action, {
         path: state.selectedFile.path
       }).catch(() => {});
+    }
+    if (action === "openSolution") {
+      openInVisualStudio(state.selectedFile.path);
     }
   }
 
@@ -2686,6 +2765,7 @@
     state.contextHistoryKey = "";
     state.contextHistoryRequest += 1;
     state.fileFilter = "all";
+    state.solutionFilter = false;
     state.selectedFiles.clear();
     state.batchBusy = false;
     state.branchSelection.clear();
@@ -2914,24 +2994,14 @@
         `${batchSelected ? "取消选择" : "选择"} ${filePath}`
       );
       fileSelect.innerHTML = batchSelected ? icon("check") : "";
-      updateBatchSelectionUi(
-        collectChangedEntries(state.detail.summary).filter(
-          (entry) =>
-            state.fileFilter === "all" ||
-            entry.groups.has(state.fileFilter)
-        )
-      );
+      updateBatchSelectionUi(getVisibleEntries());
       updateComposerState();
       return;
     }
 
     const selectAllFiles = event.target.closest("[data-file-select-all]");
     if (selectAllFiles) {
-      const visibleEntries = collectChangedEntries(state.detail.summary).filter(
-        (entry) =>
-          state.fileFilter === "all" ||
-          entry.groups.has(state.fileFilter)
-      );
+      const visibleEntries = getVisibleEntries();
       const allSelected = visibleEntries.every((entry) =>
         state.selectedFiles.has(entry.path)
       );
@@ -2967,13 +3037,14 @@
       } else {
         state.collapsedFolders.add(folderPath);
       }
-      renderFileTree(
-        collectChangedEntries(state.detail.summary).filter(
-          (entry) =>
-            state.fileFilter === "all" ||
-            entry.groups.has(state.fileFilter)
-        )
-      );
+      renderFileTree(getVisibleEntries());
+      return;
+    }
+
+    const solutionFilter = event.target.closest("[data-action='toggle-solution-filter']");
+    if (solutionFilter) {
+      state.solutionFilter = !state.solutionFilter;
+      renderChanges(state.detail.summary);
       return;
     }
 

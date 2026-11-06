@@ -24,7 +24,7 @@ const {
   getRemotes,
   resolveRemoteTarget
 } = require("./git-summary");
-const { openExplorer, openTerminal, openTortoiseGit } = require("./shell");
+const { openExplorer, openTerminal, openTortoiseGit, openVisualStudio } = require("./shell");
 
 async function runRepositoryAction(repository, body) {
   const action = body.action;
@@ -141,6 +141,17 @@ async function runRepositoryAction(repository, body) {
       case "openTortoiseGit":
         await openTortoiseGit(repository.path);
         output = "已打开 TortoiseGit。";
+        break;
+      case "openVisualStudio":
+        {
+          const solutionRelative = validateRepositoryPath(
+            repository.path,
+            body.path
+          );
+          const solutionPath = path.resolve(repository.path, solutionRelative);
+          await openVisualStudio(solutionPath);
+          output = "已用 Visual Studio 打开。";
+        }
         break;
       default:
         throw httpError(400, "不支持的 Git 操作。");

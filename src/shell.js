@@ -128,4 +128,103 @@ async function openTortoiseGit(repositoryPath) {
   ).unref();
 }
 
-module.exports = { openExplorer, openTerminal, openTortoiseGit };
+async function openVisualStudio(solutionPath) {
+  if (process.platform !== "win32") {
+    throw httpError(501, "Visual Studio 仅支持 Windows。");
+  }
+
+  const executablePath = await findDevenv();
+  if (!executablePath) {
+    throw httpError(
+      501,
+      "未找到 devenv.exe，请先安装 Visual Studio。"
+    );
+  }
+
+  // devenv.exe 通过文件路径参数直接打开解决方案，无需额外开关。
+  spawn(executablePath, [solutionPath], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: false
+  }).unref();
+}
+
+// 定位本机 Visual Studio 的 devenv.exe：优先用 vswhere，再回退常见版本目录。
+async function findDevenv() {
+  const vswhereCandidates = [
+    process.env.ProgramFiles &&
+      path.join(
+        process.env.ProgramFiles,
+        "Microsoft Visual Studio",
+        "Installer",
+        "vswhere.exe"
+      ),
+    process.env["ProgramFiles(x86)"] &&
+      path.join(
+        process.env["ProgramFiles(x86)"],
+        "Microsoft Visual Studio",
+        "Installer",
+        "vswhere.exe"
+      )
+  ].filter(Boolean);
+
+  for (const vswhere of vswhereCandidates) {
+    const stat = await fs.stat(vswhere).catch(() => null);
+    if (!stat?.isFile()) {
+      continue;
+    }
+    const located = await runProcess(vswhere, [
+      "-latest",
+      "-products",
+      "*",
+      "-requires",
+      "Microsoft.VisualStudio.Component.CoreEditor",
+      "-property",
+      "installationPath"
+    ]).catch(() => null);
+    if (located?.code !== 0) {
+      continue;
+    }
+    const installPath = located.stdout.split(/\r?\n/).find(Boolean);
+    if (!installPath) {
+      continue;
+    }
+    const candidate = path.join(
+      installPath,
+      "Common7",
+      "IDE",
+      "devenv.exe"
+    );
+    if ((await fs.stat(candidate).catch(() => null))?.isFile()) {
+      return candidate;
+    }
+  }
+
+  const years = ["2022", "2019"];
+  const skus = ["Community", "Professional", "Enterprise"];
+  const bases = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter(
+    Boolean
+  );
+  for (const year of years) {
+    for (const sku of skus) {
+      for (const base of bases) {
+        const candidate = path.join(
+          base,
+          "Microsoft Visual Studio",
+          year,
+          sku,
+          "Common7",
+          "IDE",
+          "devenv.exe"
+        );
+        if ((await fs.stat(candidate).catch(() => null))?.isFile()) {
+          return candidate;
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
+module.exports = { openExplorer, openTerminal, openTortoiseGit, openVisualStudio };
