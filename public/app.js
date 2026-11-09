@@ -435,6 +435,12 @@
         handleDirectoryCheck(input);
       }
     });
+    // 扫描结果列表会被重新渲染，勾选走容器委托；只更新文本与按钮，不重排列表。
+    elements.modalBody.addEventListener("change", (event) => {
+      if (event.target.closest?.('input[name="scan-repository"]')) {
+        updateScanSelectionUI();
+      }
+    });
     elements.contextMenu.addEventListener("click", handleContextMenuClick);
     elements.fileGroups.addEventListener("dblclick", (event) => {
       const target = event.target.closest("[data-preview-file]");
@@ -4337,6 +4343,7 @@
       `
     });
     state.modalType = "scan";
+    updateScanSelectionUI();
     document.getElementById("scanRoot")?.focus();
   }
 
@@ -4359,6 +4366,13 @@
         </select>
       </div>
       <p class="form-help">自动跳过 .git、node_modules、vendor、dist、build、target 等目录。</p>
+      <div class="scan-selection-bar">
+        <div class="scan-selection-actions">
+          <button class="button" type="button" data-modal-action="scan-select-all">全选</button>
+          <button class="button" type="button" data-modal-action="scan-invert-selection">反选</button>
+        </div>
+        <div class="scan-selection-summary" id="scanSelectionSummary"></div>
+      </div>
       <div class="scan-results" id="scanResults">
         ${
           results.length
@@ -4366,7 +4380,7 @@
                 .map(
                   (repository) => `
                     <label class="scan-row">
-                      <input type="checkbox" name="scan-repository" value="${escapeHtml(repository.path)}" checked />
+                      <input type="checkbox" name="scan-repository" value="${escapeHtml(repository.path)}" data-scan-name="${escapeHtml(repository.name)}" checked />
                       <span>
                         <span class="scan-name">${escapeHtml(repository.name)}</span>
                         <span class="scan-path">${escapeHtml(repository.path)}</span>
@@ -4379,6 +4393,61 @@
         }
       </div>
     `;
+  }
+
+  function scanRepositoryInputs() {
+    return [
+      ...elements.modalBody.querySelectorAll('input[name="scan-repository"]')
+    ];
+  }
+
+  // 扫描结果的勾选只增量更新文本与按钮，不重建列表；列表可能很长，重建会丢滚动位置。
+  function updateScanSelectionUI() {
+    const inputs = scanRepositoryInputs();
+    const total = inputs.length;
+    const selected = inputs
+      .filter((input) => input.checked)
+      .map((input) => ({
+        name: input.dataset.scanName || input.value,
+        path: input.value
+      }));
+    const text = total
+      ? selected.length
+        ? `已选 ${selected.length}/${total} 个：${selected
+            .map((item) => item.name)
+            .join("、")}`
+        : `共 ${total} 个仓库，当前未选中`
+      : "扫描后会在这里列出发现的仓库";
+    const summary = document.getElementById("scanSelectionSummary");
+    if (summary) {
+      summary.textContent = text;
+      // 名字拼接可能很长，完整清单（含路径）放在悬停提示里，单行展示用省略号。
+      summary.title = selected.length
+        ? selected.map((item) => `${item.name} — ${item.path}`).join("\n")
+        : text;
+      summary.classList.toggle("is-empty", selected.length === 0);
+    }
+    const selectAll = elements.modalBody.querySelector(
+      '[data-modal-action="scan-select-all"]'
+    );
+    if (selectAll) {
+      selectAll.disabled = total === 0 || selected.length === total;
+    }
+    const invert = elements.modalBody.querySelector(
+      '[data-modal-action="scan-invert-selection"]'
+    );
+    if (invert) {
+      invert.disabled = total === 0;
+    }
+    const addButton = elements.modalFooter.querySelector(
+      '[data-modal-action="add-scan-results"]'
+    );
+    if (addButton) {
+      addButton.disabled = selected.length === 0;
+      addButton.innerHTML = `${icon("plus")}${
+        selected.length ? `添加 ${selected.length} 个仓库` : "添加选中仓库"
+      }`;
+    }
   }
 
   function openNewBranchModal() {
@@ -4516,6 +4585,14 @@
     }
     if (action === "scan") {
       await scanFromModal(button);
+      return;
+    }
+    if (action === "scan-select-all" || action === "scan-invert-selection") {
+      const selectAll = action === "scan-select-all";
+      for (const input of scanRepositoryInputs()) {
+        input.checked = selectAll ? true : !input.checked;
+      }
+      updateScanSelectionUI();
       return;
     }
     if (action === "add-scan-results") {
@@ -5031,6 +5108,7 @@
           ${icon("plus")}添加选中仓库
         </button>
       `;
+      updateScanSelectionUI();
       if (!result.repositories.length) {
         showToast("没有发现仓库", "可以换一个目录，或提高扫描深度。", "warning");
       }

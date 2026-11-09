@@ -70,6 +70,7 @@
 | 远端 | `renderRemoteList()` |
 | 弹窗 | `openModal()`、`closeModal()`、`showConfirm()`、`withModalButton()` |
 | 目录选择器 | `openDirectoryPicker()`、`loadDirectory()`、`renderDirectoryPicker()` |
+| 扫描结果全选 / 反选与已选清单 | `renderScanModalBody()`（含 `data-scan-name`）、`scanRepositoryInputs()`、`updateScanSelectionUI()`、`handleModalAction()` 的 `scan-select-all` / `scan-invert-selection` |
 | 事件分发 | `handleDocumentClick()`、`handleKeydown()` |
 | 分栏拖动 | `initializeResizers()`、`setResizerWidth()` |
 | 仓库右键菜单 | `openRepoMenu()`、`handleContextMenuClick()` |

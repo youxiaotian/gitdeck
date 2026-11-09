@@ -49,12 +49,15 @@
 | 分栏拖动 | `[data-resizer="sidebar|filetree|context"]` |
 | 主弹窗 | `#modalBackdrop`、`#modalPanel` |
 | 目录选择器 | `#directoryPickerBackdrop`、`.directory-selection-bar`、`input[data-directory-check]`、`#directoryPrimaryButton` |
+| 扫描结果选择条 | `.scan-selection-bar`、`#scanSelectionSummary`、`[data-modal-action="scan-select-all\|scan-invert-selection"]`、`input[name="scan-repository"]` |
 | 右键菜单 | `#contextMenu` |
 | 提示 | `#toastRegion` |
 
 目录选择器列表滚动期间保持轻量：`hideContextMenu()` 在菜单已隐藏时不再写 `hidden` 属性，`window` 的滚动监听使用 `passive`；已移除自动刷新定时器，滚动期间不会有后台整页 `render()`；样式上 `.directory-list` 使用 `contain: layout paint` 与 `overscroll-behavior: contain`，`.directory-backdrop` 不使用全屏 `backdrop-filter`。
 
 「添加仓库」场景（`openDirectoryPicker(..., { multiple: true })`）启用多选：目录行结构是 `.directory-row` 容器 + 独立复选框 `label.directory-check` + `.directory-row-open` 进入按钮（按钮内不能嵌套交互元素）。只有 `isRepository` 的行可勾选；选择集 `state.directorySelected` 是 `Set`，翻页/进入子目录不清空，`renderDirectoryPicker()` 回填 `checked`，勾选与计数更新走 `updateDirectorySelectionUI()` 的增量写入，不重建 `.directory-list`。`data-directory-action` 新增 `select-all` / `select-current` / `clear-selection` / `add-selected`；扫描目录场景不带 `multiple`，仍是单选并回填路径输入框。
+
+扫描结果弹窗在「自动跳过…」说明下方新增 `.scan-selection-bar`：左侧「全选 / 反选」按钮走 `data-modal-action`（`scan-select-all` / `scan-invert-selection`）接入 `handleModalAction()`，右侧 `#scanSelectionSummary` 把已选仓库名用顿号拼接为 `已选 N/M 个：A、B、C`，完整 `名称 — 路径` 清单放在 `title`，过长时单行省略。结果复选框带 `data-scan-name`。勾选变化由 `elements.modalBody` 的 `change` 委托触发 `updateScanSelectionUI()`，只增量改写清单文本、按钮禁用态与底部「添加 N 个仓库」文案，不重建 `.scan-results`；打开弹窗与扫描完成时各初始化一次。已全选时「全选」禁用，0 选中时底部添加按钮禁用。
 
 ## 前端状态分组
 

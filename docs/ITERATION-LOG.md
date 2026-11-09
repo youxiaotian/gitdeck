@@ -2,6 +2,16 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-09 - 扫描结果增加全选 / 反选与已选清单
+
+- 用户反馈：「扫描本地仓库」结果多时逐项勾选不方便，希望加全选、反选，并把选中了哪些拼接展示在列表上方。
+- 改动（`public/app.js`、`public/styles.css`）：
+  - `renderScanModalBody()` 在「自动跳过…」说明下方新增 `.scan-selection-bar`：左侧「全选」「反选」按钮走 `data-modal-action` 接入 `handleModalAction()`；右侧 `#scanSelectionSummary` 显示 `已选 N/M 个：A、B、C`，完整 `名称 — 路径` 清单放 `title`，单行超长用省略号。结果复选框新增 `data-scan-name`，拼接不依赖 `state.scanResults` 的路径映射。
+  - `scanRepositoryInputs()` / `updateScanSelectionUI()` 增量更新清单文本、全选按钮（已全选时禁用）、反选按钮和底部「添加 N 个仓库」文案及禁用态；勾选变化由 `elements.modalBody` 的 `change` 委托触发，不重建 `.scan-results`，滚动位置不丢失。打开弹窗与扫描完成后各初始化一次。
+  - 底部 `addScanResults()` 读取选中项的逻辑不变。
+- 验证：`tests/project-files.test.js` 新增源码约束（按钮、拼接、0 选中禁用、动作分发、增量更新、CSS 省略）；`node --test`、`node --check`、`node tools/check-docs.js`。
+- 文档同步：`MAP.md`、`UI-MAP.md`、`FEATURES.md`、`TESTING.md`、本文件。
+
 ## 2026-11-06 - 移除全部后台自动抓取与定时刷新
 
 - 用户反馈：TortoiseGit Log 打开后持续转圈，明确要求「把后台自动刷新的逻辑下掉」，之后自己主动拉取，不要自动功能。

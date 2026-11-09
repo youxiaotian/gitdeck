@@ -194,6 +194,65 @@ test("目录选择器多选批量添加：跨目录保留与增量更新", async
   assert.match(css, /accent-color: var\(--green\)/);
 });
 
+test("扫描结果支持全选 / 反选并拼接展示已选仓库", async () => {
+  const [app, css] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "styles.css"), "utf8")
+  ]);
+
+  const body = app.slice(
+    app.indexOf("function renderScanModalBody("),
+    app.indexOf("function scanRepositoryInputs(")
+  );
+  assert.match(body, /data-modal-action="scan-select-all"/, "要有全选按钮");
+  assert.match(body, /data-modal-action="scan-invert-selection"/, "要有反选按钮");
+  assert.match(body, /id="scanSelectionSummary"/, "要有已选清单展示区");
+  assert.match(body, /data-scan-name=/, "复选框要带仓库名用于拼接展示");
+
+  const updater = app.slice(
+    app.indexOf("function updateScanSelectionUI("),
+    app.indexOf("function openNewBranchModal(")
+  );
+  assert.match(updater, /\.join\("、"/, "选中项要拼接成名称清单");
+  assert.match(updater, /summary\.textContent = text/, "清单要写回展示区");
+  assert.match(updater, /summary\.title =/, "长清单要在悬停提示里给完整路径");
+  assert.match(
+    updater,
+    /addButton\.disabled = selected\.length === 0/,
+    "0 选中时禁用添加按钮"
+  );
+  assert.doesNotMatch(updater, /modalBody\.innerHTML/,
+    "勾选必须增量更新，不能重建结果列表");
+
+  const dispatch = app.slice(
+    app.indexOf("async function handleModalAction("),
+    app.indexOf("// 一次批量添加的上限")
+  );
+  assert.match(
+    dispatch,
+    /action === "scan-select-all" \|\| action === "scan-invert-selection"/,
+    "两个按钮要接入现有动作分发"
+  );
+  assert.match(dispatch, /input\.checked = selectAll \? true : !input\.checked/,
+    "反选要逐项取反");
+  assert.match(app, /elements\.modalBody\.addEventListener\("change"/,
+    "勾选变化要走容器委托");
+  assert.match(
+    app,
+    /state\.modalType = "scan";[\s\S]{0,80}updateScanSelectionUI\(\)/,
+    "打开弹窗要初始化清单"
+  );
+  const scan = app.slice(
+    app.indexOf("async function scanFromModal("),
+    app.indexOf("async function addScanResults(")
+  );
+  assert.match(scan, /updateScanSelectionUI\(\)/, "扫描完成要刷新清单与按钮");
+
+  assert.match(css, /\.scan-selection-summary \{/);
+  assert.match(css, /text-overflow: ellipsis/,
+    "长清单要单行省略，不撑破布局");
+});
+
 test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async () => {
   const [app, html, shell, css, actions] = await Promise.all([
     fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),

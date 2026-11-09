@@ -26,7 +26,7 @@
 - 手动输入路径添加仓库。
 - 使用内置目录浏览器选择目录；列表滚动保持流畅（遮罩不做全屏模糊、滚动时不写 DOM、选目录期间暂停后台整页刷新）。
 - 目录浏览器支持**多选批量添加**：勾选多个 Git 仓库后一次加入当前工作区；可「全选 Git 仓库」、清空、把当前目录加入选择，并且切换目录后已勾选的仓库仍保留。扫描目录的目录选择仍为单选。
-- 扫描上级目录并批量选择发现的仓库。
+- 扫描上级目录并批量选择发现的仓库：结果默认全选，列表上方提供**全选 / 反选**，右侧实时把已选仓库名用顿号拼接展示（`已选 N/M 个：A、B、C`）；完整路径放在悬停提示里，过长时单行省略。底部按钮同步显示「添加 N 个仓库」，0 选中时禁用。
 - 新仓库加入当前工作区。
 
 **实现位置**
@@ -35,6 +35,7 @@
 - `discoverRepositories()` 递归扫描，并跳过常见构建与依赖目录。
 - `listDirectories()` 为内置目录选择器提供数据。
 - 前端：`openAddRepositoryModal()`、`openScanModal()`、`openDirectoryPicker()`、`renderDirectoryPicker()`。
+- 扫描选择条：`renderScanModalBody()` 在 `.scan-selection-bar` 里渲染按钮与 `#scanSelectionSummary`，复选框带 `data-scan-name`；`scanRepositoryInputs()` / `updateScanSelectionUI()` 增量改写清单文本、按钮禁用态和底部文案，勾选变化走 `elements.modalBody` 的 `change` 委托，不重建 `.scan-results`；`handleModalAction()` 分发 `scan-select-all` / `scan-invert-selection`。
 - 多选：`state.directoryMultiple` / `directorySelected`（`Set`，跨目录保留）、`handleDirectoryCheck()`、`updateDirectorySelectionUI()`、`syncDirectoryRowChecks()`、`selectAllVisibleRepositories()`、`addSelectedDirectories()`；批量添加复用 `POST /api/repositories` 串行落盘，单次上限 50 个，失败项留在选择集里可重试。
 - 滚动性能：`public/styles.css` 的 `.directory-list`（`contain: layout paint`、`overscroll-behavior: contain`）与 `.directory-backdrop`（无 `backdrop-filter`）；`hideContextMenu()` 用 passive 监听且菜单已隐藏时不写 DOM；已无自动刷新定时器，滚动期间不会有后台整页重绘。
 
