@@ -52,8 +52,9 @@
 | 目录选择器 | `#directoryPickerBackdrop`、`.directory-selection-bar`、`input[data-directory-check]`、`#directoryPrimaryButton` |
 | 扫描结果选择条 | `.scan-selection-bar`、`#scanSelectionSummary`、`[data-modal-action="scan-select-all\|scan-invert-selection"]`、`input[name="scan-repository"]` |
 | 右键菜单 | `#contextMenu`、`.context-menu-wide`、`button[data-menu-action]`、`.context-menu button.primary`、`button[disabled]` |
+| .sln 解决方案模式 | `#solutionFilterToggle`、`#solutionToolbar`、`#solutionSearchInput`、`[data-solution-scope]`、`[data-solution-rescan]`、`[data-solution-select]`、`[data-solution-key]`、`[data-solution-clear-filters]`、`.solution-row` |
 | 提交差异弹窗 | `#modalPanel.modal-wide`、`pre.commit-patch` |
-| 历史引用表单 | `#historyRefName`、`#historySwitchToRef`、`#historyTagMessage`、`#historyResetMode`、`[data-modal-action="create-history-ref"]` |
+| 历史引用表单 | `#historyRefName`、`#historySwitchToRef`、`#historyTagMessage`、`[data-modal-action="create-history-ref"]` |
 | 提示 | `#toastRegion` |
 
 目录选择器列表滚动期间保持轻量：`hideContextMenu()` 在菜单已隐藏时不再写 `hidden` 属性，`window` 的滚动监听使用 `passive`；已移除自动刷新定时器，滚动期间不会有后台整页 `render()`；样式上 `.directory-list` 使用 `contain: layout paint` 与 `overscroll-behavior: contain`，`.directory-backdrop` 不使用全屏 `backdrop-filter`。
@@ -97,7 +98,7 @@
 - `scanResults`、`scanRoot`
 - 目录选择器字段
 - `menuRepositoryId`
-- `menuContext`：`{ type: "repo" | "ref" | "commit", ... }`，决定右键菜单动作分发
+- `menuContext`：`{ type: "repo" | "ref", ... }`，决定右键菜单动作分发
 - `historyRefDraft`、`commitPatchRequest`
 - `drafts`
 - `version`
@@ -147,8 +148,10 @@ render()
 - `data-directory-action`
 - `data-menu-action`（`#contextMenu` 内的点击委托 `handleContextMenuClick()`）
 - `data-modal-action="create-history-ref"`（在指定提交创建分支/标签）
+- `.sln` 模式：开启按钮走 `data-action="toggle-solution-filter"`；列表用 `data-solution-select` / `data-solution-key` 单选与双击打开（携带目标仓库 id）；搜索框 `input` 事件、范围与重新扫描按钮走 `data-solution-*` 委托；跨仓库结果存 `state.solutionCatalog` / `solutionCache`，切换仓库不关闭模式。
+- `.sln` 双击约定：单击 `[data-solution-select]` 只走 `selectSolutionItem()`（增量切 `.selected` + 重建右侧 `renderSolutionPreview()`），**绝不重建列表 DOM**；否则浏览器不会派发 `dblclick`，表现为双击没反应。打开由 `requestOpenSolution()` 统一处理，`dblclick` 与第二次 `click(detail>=2)` 都会进入，靠 800ms 去重只发一次 `openVisualStudio` 动作请求。
 
-右键事件由 `document` 上的 `contextmenu` 监听统一处理：命中 `[data-open-repo]` 打开仓库菜单；命中 `.context-history-row` 时 `preventDefault()`，落在徽标上打开引用菜单，否则打开提交菜单。新增按钮优先接入该事件体系，除非它需要独立持久状态或特殊键盘行为。
+右键事件由 `document` 上的 `contextmenu` 监听统一处理：命中 `[data-open-repo]` 打开仓库菜单；只有命中 `.context-history-decoration` 且能找到所属 `.context-history-row` 时才 `preventDefault()` 并打开引用菜单。历史行其它位置不拦截，保留浏览器默认菜单。新增按钮优先接入该事件体系，除非它需要独立持久状态或特殊键盘行为。
 
 ## Diff/编辑流程
 
@@ -201,13 +204,13 @@ render()
 - 后端用 `git log --topo-order` 返回结构化行（`hash` / `parents` / `%D` 装饰），不再返回 ASCII 图线。
 - 前端 `buildHistoryGraph()` 按拓扑序分配泳道、`historyGraphSvg()` 绘制多色 SVG 轨道；`renderHistoryDecorations()` 解析 `%D` 并写入 `data-ref*`。
 
-## 提交历史右键菜单
+## 提交历史分支标签右键菜单
 
-- 分支/标签徽标右键 → `openRefMenu()`；首项 `switch-ref` 高亮，调用 `performRepoAction(..., "checkoutRef", { ref })`。
-- 提交行右键 → `openCommitMenu()`；差异类动作走 `GET /api/repositories/:id/commit?hash=&compare=`，在 `.modal-wide` 里用 `pre.commit-patch` 展示。
+- 只有分支/标签徽标右键 → `openRefMenu()`；首项 `switch-ref` 高亮，调用 `performRepoAction(..., "checkoutRef", { ref })`。右键历史行其它位置不弹自定义菜单。
+- 差异类动作走 `GET /api/repositories/:id/commit?hash=&compare=`，在 `.modal-wide` 里用 `pre.commit-patch` 展示。
 - `showContextMenu()` 用实测 `offsetWidth` / `offsetHeight` 钳制位置；宽菜单 `max-height` 限制后可内部滚动。
 - 页面滚动、窗口缩放、Escape、点击菜单外都会经 `hideContextMenu()` 关闭；菜单自身的滚动事件因 `elements.contextMenu.contains(event.target)` 守卫不会误关。
-- 改写仓库/远端的动作统一经 `showConfirm()`，`resetToCommit` 额外提供 `#historyResetMode` 选择。
+- 改写仓库/远端的动作统一经 `showConfirm()`。
 
 ## 分支整行选择
 

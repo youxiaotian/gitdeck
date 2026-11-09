@@ -253,7 +253,7 @@ test("扫描结果支持全选 / 反选并拼接展示已选仓库", async () =>
     "长清单要单行省略，不撑破布局");
 });
 
-test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async () => {
+test("文件列表的 .sln 模式汇总所有仓库的解决方案并支持快速打开", async () => {
   const [app, html, shell, css, actions] = await Promise.all([
     fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
     fs.readFile(path.join(ROOT, "public", "index.html"), "utf8"),
@@ -262,67 +262,126 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
     fs.readFile(path.join(ROOT, "src", "git-actions.js"), "utf8")
   ]);
 
-  // 前端：文件列表工具区有 .sln 过滤按钮，且点击切换 solutionFilter。
+  // 前端：工具区有 .sln 开关，以及跨仓库列表专用的搜索/范围/重新扫描工具条。
   assert.match(
     html,
     /data-action="toggle-solution-filter"/,
-    "文件列表工具区应提供 .sln 过滤按钮"
+    "文件列表工具区应提供 .sln 按钮"
   );
-  assert.match(app, /state\.solutionFilter = false/, "应存在 solutionFilter 状态");
+  assert.match(html, /id="solutionToolbar"/, "应提供解决方案工具条");
+  assert.match(html, /id="solutionSearchInput"/, "应提供解决方案搜索框");
+  assert.match(html, /data-solution-scope="current"/, "应能切到仅当前仓库");
+  assert.match(html, /data-solution-rescan/, "应能重新扫描");
+  assert.match(app, /solutionFilter: false,/, "应存在 solutionFilter 状态");
   assert.match(
     app,
     /state\.solutionFilter = !state\.solutionFilter/,
     "点击 .sln 按钮应切换 solutionFilter"
   );
-  // 过滤逻辑：解决方案模式与 git 无关，直接展示目录下所有 .sln；
-  // 普通模式仍按状态（全部/未暂存/已暂存/未跟踪）筛选。
-  assert.match(app, /function getVisibleEntries\(/, "应抽出统一的可见文件筛选函数");
+  // 核心修复：不再只扫当前仓库，而是汇总所有已添加仓库并缓存结果。
+  assert.match(app, /solutionCatalog: \[\]/, "应维护跨仓库解决方案目录");
+  assert.match(app, /solutionScope: "all"/, "默认范围为全部仓库");
+  assert.match(app, /solutionCache: new Map\(\)/, "应按仓库缓存扫描结果");
   assert.match(
     app,
-    /state\.solutionFilter[\s\S]{0,80}return entries;/,
-    "解决方案模式应直接返回所有 .sln 条目，不受 git 状态约束"
+    /state\.repositories\.filter\(\s*\(repository\) => !state\.solutionCache\.has\(repository\.id\)/,
+    "只扫描尚未缓存的仓库，而不是只看当前选中仓库"
   );
   assert.match(
     app,
-    /function toSolutionEntry\(filePath\)[\s\S]{0,80}solution: true/,
-    "应把 .sln 路径包装成解决方案条目"
+    /async function fetchSolutions\(\{ force = false \} = \{\}\)[\s\S]{0,1200}\/api\/repositories\/\$\{repository\.id\}\/solutions/,
+    "应对每个仓库调用 solutions 接口"
   );
-  assert.match(
-    app,
-    /async function fetchSolutions\(\)[\s\S]{0,500}\/api\/repositories\/\$\{[^}]+\}\/solutions/,
-    "开启过滤应从后端扫描解决方案接口拉取列表"
-  );
-  assert.match(
-    app,
-    /function renderSolutionView\(\)/,
-    "应存在独立的解决方案视图渲染"
-  );
-  assert.match(
-    app,
-    /function resolveFileEntry\(filePath\)/,
-    "应抽出解析文件条目的函数，以便解决方案文件不依赖 git 状态"
-  );
-  assert.match(
-    app,
-    /state\.solutions\.includes\(filePath\)/,
-    "点击 .sln 文件应能在解决方案列表里解析到，而不依赖 git 状态"
-  );
+  assert.match(app, /function buildSolutionCatalog\(/, "应构建跨仓库目录");
+  assert.match(app, /function getVisibleSolutions\(/, "应按范围与关键字过滤");
+  assert.match(app, /function renderSolutionList\(/, "应渲染独立的解决方案列表");
+  assert.match(app, /function updateSolutionToolbar\(/, "应同步工具条状态");
+  assert.match(app, /data-solution-select=/, "列表项应可单击选中");
+  assert.match(app, /data-solution-key=/, "列表项应携带唯一键（跨仓库可能同名）");
   assert.match(
     app,
     /elements\.changesView\.classList\.toggle\([\s\S]{0,80}"solution-mode"/,
     "解决方案模式应切换 solution-mode 类以隐藏暂存勾选"
   );
-  // 双击 .sln 行用 VS 打开；非 .sln 文件忽略。
+  // 防回归：不能回到「只扫当前仓库、空了就说目录下没有 .sln」的旧实现。
+  assert.doesNotMatch(
+    app,
+    /state\.solutions\.includes\(/,
+    "不应再有只服务当前仓库的 solutions 数组"
+  );
+  assert.doesNotMatch(
+    app,
+    /目录下没有 \.sln 文件/,
+    "空态不能把「当前仓库没有」误报成「目录下没有」"
+  );
+  assert.match(app, /没有找到 \.sln 文件/, "空态应说明已扫描全部仓库");
+
+  // 双击或预览区按钮用 VS 打开：必须带上目标仓库 id，不能误用当前仓库。
   assert.match(app, /elements\.fileGroups\.addEventListener\("dblclick"/, "应绑定文件列表双击事件");
   assert.match(
     app,
-    /const filePath = target\.dataset\.previewFile;[\s\S]{0,160}openInVisualStudio\(filePath\)/,
-    "双击 .sln 行应触发用 VS 打开"
+    /closest\("\[data-solution-key\]"\)[\s\S]{0,220}requestOpenSolution\(/,
+    "双击解决方案行应按唯一键打开"
+  );
+  assert.match(app, /function requestOpenSolution\(key\)/, "应有统一打开入口");
+  assert.match(
+    app,
+    /lastSolutionOpen\.key === key[\s\S]{0,120}now - lastSolutionOpen\.at < 800/,
+    "dblclick 与第二次 click 会重复触发，必须短时去重"
   );
   assert.match(
     app,
-    /function openInVisualStudio\(filePath\)[\s\S]{0,200}isSolutionFile\(filePath\)[\s\S]{0,200}performRepoAction\(state\.selectedId, "openVisualStudio"/,
-    "openInVisualStudio 必须经 isSolutionFile 校验后再发 openVisualStudio 动作"
+    /event\.detail >= 2[\s\S]{0,120}requestOpenSolution\(key\)/,
+    "不派发 dblclick 的输入设备应由第二次 click 兜底打开"
+  );
+  // 根因防回归：单击选中若重建列表 DOM，浏览器就不会派发 dblclick，
+  // 表现为「双击 .sln 完全没反应」。选中必须只做增量 class 切换。
+  const selectBody = app.slice(
+    app.indexOf("function selectSolutionItem("),
+    app.indexOf("function requestOpenSolution(")
+  );
+  assert.ok(selectBody.length > 0, "应存在增量选中函数");
+  assert.doesNotMatch(selectBody, /renderChanges\(/, "选中函数不能重建整个视图");
+  assert.doesNotMatch(
+    selectBody,
+    /fileGroups\.innerHTML/,
+    "选中函数不能重建列表 DOM"
+  );
+  assert.match(
+    selectBody,
+    /querySelectorAll\("\[data-solution-key\]"\)[\s\S]{0,220}classList\.toggle\("selected"/,
+    "选中态只切换 class"
+  );
+  assert.match(app, /function renderSolutionPreview\(/, "右侧预览区应独立渲染");
+  assert.match(
+    app,
+    /async function openInVisualStudio\(target\)[\s\S]{0,900}isSolutionFile\(relativePath\)[\s\S]{0,900}api\(`\/api\/repositories\/\$\{repositoryId\}\/action`/,
+    "打开前必须校验 .sln，并直接向条目所属仓库发动作请求"
+  );
+  const openBody = app.slice(
+    app.indexOf("async function openInVisualStudio("),
+    app.indexOf("function requestPreviewMode(")
+  );
+  assert.ok(openBody.length > 0, "应存在独立的打开函数");
+  assert.doesNotMatch(
+    openBody,
+    /performRepoAction\(/,
+    "打开 VS 不能走通用动作队列，否则会被仓库 busy 锁静默丢弃"
+  );
+  assert.match(
+    app,
+    /item\?\.repositoryId \|\| state\.selectedId/,
+    "跨仓库条目应携带 repositoryId"
+  );
+  assert.match(
+    app,
+    /showToast\([\s\S]{0,80}"正在启动 Visual Studio"/,
+    "VS 启动慢，打开前应有即时反馈"
+  );
+  assert.match(
+    app,
+    /showToast\("打开解决方案失败"/,
+    "打开失败必须明确提示，不能静默"
   );
   assert.match(app, /filePath\.toLowerCase\(\)\.endsWith\("\.sln"\)/, "双击只响应 .sln 文件");
   // 选中 .sln 时预览操作栏提供显式入口。
@@ -388,9 +447,12 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
   assert.match(shell, /function openVisualStudio\(/, "shell 应导出 openVisualStudio");
   assert.match(shell, /module\.exports = \{[\s\S]*openVisualStudio/, "openVisualStudio 应被导出");
 
-  // 样式：过滤按钮激活态与 solution 行标记。
+  // 样式：过滤按钮激活态、跨仓库工具条与列表、普通 .sln 行标记。
   assert.match(css, /\.solution-filter-toggle \.solution-badge \{/);
-  assert.match(css, /\.solution-file \.tree-file-open::after/, "solution 文件应有 VS 标记");
+  assert.match(css, /\.solution-toolbar \{/, "应有搜索/范围/重新扫描工具条样式");
+  assert.match(css, /\.solution-row \{/, "应有跨仓库解决方案列表样式");
+  assert.match(css, /\.solution-list-empty \{/, "空态应可操作而不是死胡同");
+  assert.match(css, /\.solution-file \.tree-file-open::after/, "普通文件列表里的 .sln 仍应有 VS 标记");
 });
 
 test("listSolutions 直接扫描目录下的 .sln，与 git 状态无关且跳过 .git", async () => {
@@ -432,13 +494,13 @@ test("解决方案读取失败必须明确报错，start.cmd 能真正重启后�
   assert.match(app, /state\.solutionsRequest/, "切换仓库时应让在途扫描请求失效");
   assert.match(
     app,
-    /\/接口不存在\|404\/\.test\(message\)[\s\S]{0,300}start\.cmd/,
+    /\/接口不存在\|404\/\.test\(failures\[0\] \|\| ""\)[\s\S]{0,300}start\.cmd/,
     "404 应提示重新运行 start.cmd 重启服务，不能伪装成空目录"
   );
   assert.match(
     app,
-    /state\.solutionFilter && state\.solutionsError[\s\S]{0,300}无法读取解决方案列表/,
-    "文件列表错误态应显示明确原因"
+    /state\.solutionsError && !items\.length[\s\S]{0,300}escapeHtml\(state\.solutionsError\)/,
+    "解决方案列表错误态应显示明确原因"
   );
   assert.match(
     app,
@@ -527,7 +589,7 @@ test("不再有任何后台自动抓取或定时状态刷新", async () => {
   );
 });
 
-test("提交历史分支标签与提交行支持 TortoiseGit 风格右键菜单", async () => {
+test("提交历史只有分支/标签徽标支持 TortoiseGit 风格右键菜单", async () => {
   const [app, css, actions, routes] = await Promise.all(
     [
       ["public", "app.js"],
@@ -543,16 +605,20 @@ test("提交历史分支标签与提交行支持 TortoiseGit 风格右键菜单"
   assert.match(app, /data-ref-kind="\$\{kind\}"/, "装饰标签必须标注引用类型");
   assert.match(app, /refKind\s*=\s*decoration\.dataset\.refKind/);
 
-  // 三类菜单共用渲染器，历史菜单按上下文分发，不能落到仓库菜单动作上。
+  // 仓库行与徽标菜单共用渲染器，按上下文分发，不能落到仓库菜单动作上。
   assert.match(app, /function showContextMenu\(\{ label, items, position, context \}\)/);
   assert.match(app, /context-menu-wide/);
   assert.match(app, /state\.menuContext = context/);
   assert.match(app, /if \(context\.type === "repo"\)[\s\S]{0,120}handleRepoMenuAction/);
   assert.match(app, /handleHistoryMenuAction\(action, context\)/);
   assert.match(app, /function openRefMenu\(/);
-  assert.match(app, /function openCommitMenu\(/);
-  assert.match(app, /const historyRow = event\.target\.closest\("\.context-history-row"\)/);
-  assert.match(app, /event\.target\.closest\("\.context-history-decoration"\)/);
+
+  // 提交行右键菜单已移除：只有落在徽标上才拦截右键，其它位置保持浏览器默认行为。
+  assert.doesNotMatch(app, /openCommitMenu\(/, "不应再有提交行右键菜单");
+  assert.doesNotMatch(app, /type: "commit"/, "菜单上下文不应再有 commit 类型");
+  assert.match(app, /const decoration = event\.target\.closest\("\.context-history-decoration"\)/);
+  assert.match(app, /if \(!decoration \|\| !state\.selectedId\)/, "未命中徽标应直接返回");
+  assert.match(app, /decoration\.closest\("\.context-history-row"\)/);
 
   // 核心诉求：右键分支标签要能快速切换到该分支。
   assert.match(app, /action === "switch-ref"[\s\S]{0,600}checkoutRef/, "切换引用必须走 checkoutRef 动作");
@@ -562,22 +628,31 @@ test("提交历史分支标签与提交行支持 TortoiseGit 风格右键菜单"
   assert.match(actions, /"switch",\s*\n\s*"-c",\s*\n\s*target\.branch,\s*\n\s*"--track"/, "远端引用要创建同名跟踪分支");
   assert.match(actions, /"symbolic-ref",\s*\n\s*"--short"/, "origin/HEAD 要先解析成具体远端分支");
 
-  // 其余 TortoiseGit 风格动作与 destructive 确认。
+  // 其余分支级动作与 destructive 确认；提交级动作随提交行菜单一并清理。
   for (const action of [
     "checkoutCommit",
     "createBranchAt",
     "createTagAt",
-    "cherryPick",
-    "revertCommit",
-    "resetToCommit",
-    "rebaseOnto",
     "pushRef",
     "deleteRef"
   ]) {
     assert.match(actions, new RegExp(`case "${action}":`), `动作白名单缺少 ${action}`);
   }
+  for (const action of [
+    "cherryPick",
+    "revertCommit",
+    "resetToCommit",
+    "rebaseOnto"
+  ]) {
+    assert.doesNotMatch(
+      actions,
+      new RegExp(`case "${action}":`),
+      `提交级动作 ${action} 已无入口，应删除`
+    );
+  }
+  assert.doesNotMatch(app, /action: "merge-commit"|action: "cherry-pick"|action: "revert-commit"|action: "reset-to-commit"|action: "rebase-onto"/, "提交行专属菜单项应全部移除");
   assert.match(app, /openCreateRefAtModal|create-history-ref/, "创建分支/标签需要表单弹窗");
-  assert.match(app, /historyResetMode/, "重置必须让用户选择 soft/mixed/hard");
+  assert.doesNotMatch(app, /historyResetMode/, "重置模式表单随提交行菜单一起移除");
   assert.match(app, /danger: true/, "破坏性动作需要危险确认");
   assert.match(app, /function copyText\(/, "复制到剪贴板需要兼容非安全上下文的回退");
   assert.match(app, /navigator\.clipboard\?\.writeText/);

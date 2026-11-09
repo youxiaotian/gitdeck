@@ -789,7 +789,7 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     "solutions 接口应直接扫描目录，返回根目录与子目录下的 .sln"
   );
 
-  // 提交历史右键菜单：差异接口 + 引用/提交级动作。
+  // 提交历史分支标签右键菜单：差异接口 + 引用级动作。
   const headHash = runGit(repositoryPath, ["rev-parse", "HEAD"]).trim();
   const rootHash = runGit(repositoryPath, [
     "rev-list",
@@ -903,7 +903,7 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     () =>
       callApi(baseUrl, token, `/api/repositories/${repository.id}/action`, {
         method: "POST",
-        body: { action: "cherryPick", hash: "not-a-hash" }
+        body: { action: "checkoutCommit", hash: "not-a-hash" }
       }),
     /提交哈希无效/
   );

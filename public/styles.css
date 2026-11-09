@@ -1856,6 +1856,136 @@ body.is-resizing * {
   font-weight: 600;
 }
 
+/* 跨仓库解决方案：搜索 / 范围 / 重新扫描 + 快捷列表 */
+.solution-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-bottom: 1px solid #ece9e1;
+  background: #fdfcf8;
+}
+
+.solution-toolbar input[type="search"] {
+  flex: 1 1 140px;
+  min-width: 110px;
+  padding: 5px 8px;
+  border: 1px solid #ddd8cc;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.solution-toolbar-actions {
+  display: flex;
+  gap: 3px;
+}
+
+.solution-toolbar-actions button {
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.solution-toolbar-actions button:hover {
+  background: #f0ede4;
+}
+
+.solution-toolbar-actions button.active {
+  background: #3b5bdb;
+  color: #fff;
+}
+
+.solution-list {
+  padding: 4px 0;
+}
+
+.solution-list-head {
+  padding: 4px 10px 8px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.solution-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.solution-row:hover {
+  background: #f4f1ea;
+}
+
+.solution-row.selected {
+  background: #e9efff;
+  border-left-color: #3b5bdb;
+}
+
+.solution-row.current .solution-repo::after {
+  content: " · 当前";
+}
+
+.solution-repo {
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #3b5bdb;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.solution-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.solution-vs-badge {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #2d2d2d;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.solution-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 14px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.solution-list-empty .icon {
+  width: 22px;
+  height: 22px;
+  opacity: 0.6;
+}
+
 .file-filter-bar {
   display: flex;
   flex-wrap: wrap;

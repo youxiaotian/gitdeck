@@ -118,7 +118,7 @@ async function runRepositoryAction(repository, body) {
       case "mergeBranch":
         output = await mergeBranch(repository.path, body.name);
         break;
-      // 提交历史右键菜单：引用与提交级动作。参数先经过 validateRevision /
+      // 提交历史分支标签右键菜单：引用级动作。参数先经过 validateRevision /
       // validateCommitHash 校验，避免把任意字符串当作 revision 或选项。
       case "checkoutRef":
         output = await checkoutRef(repository.path, body.ref);
@@ -141,18 +141,6 @@ async function runRepositoryAction(repository, body) {
           body.base,
           body.message
         );
-        break;
-      case "cherryPick":
-        output = await cherryPick(repository.path, body.hash);
-        break;
-      case "revertCommit":
-        output = await revertCommit(repository.path, body.hash);
-        break;
-      case "resetToCommit":
-        output = await resetToCommit(repository.path, body.hash, body.mode);
-        break;
-      case "rebaseOnto":
-        output = await rebaseOnto(repository.path, body.hash);
         break;
       case "pushRef":
         output = await pushRef(repository.path, body.ref);
@@ -667,27 +655,6 @@ async function createTagAt(repositoryPath, name, base, message) {
   }
   args.push(tag, revision);
   return gitAction(repositoryPath, args);
-}
-
-async function cherryPick(repositoryPath, hash) {
-  const commit = await validateCommitHash(repositoryPath, hash);
-  return gitAction(repositoryPath, ["cherry-pick", commit]);
-}
-
-async function revertCommit(repositoryPath, hash) {
-  const commit = await validateCommitHash(repositoryPath, hash);
-  return gitAction(repositoryPath, ["revert", "--no-edit", commit]);
-}
-
-async function resetToCommit(repositoryPath, hash, mode) {
-  const commit = await validateCommitHash(repositoryPath, hash);
-  const safeMode = ["soft", "mixed", "hard"].includes(mode) ? mode : "mixed";
-  return gitAction(repositoryPath, ["reset", `--${safeMode}`, commit]);
-}
-
-async function rebaseOnto(repositoryPath, hash) {
-  const commit = await validateCommitHash(repositoryPath, hash);
-  return gitAction(repositoryPath, ["rebase", commit]);
 }
 
 async function pushRef(repositoryPath, refInput) {

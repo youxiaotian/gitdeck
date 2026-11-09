@@ -238,7 +238,7 @@
 
 ### `GET /api/repositories/:id/commit?hash=<哈希>&compare=patch`
 
-提交历史右键菜单的只读差异接口。`hash` 必须是 7–40 位十六进制且能解析为提交；`compare` 取 `patch` / `worktree` / `previous`，其余值按 `patch` 处理。
+提交历史分支标签右键菜单的只读差异接口。`hash` 必须是 7–40 位十六进制且能解析为提交；`compare` 取 `patch` / `worktree` / `previous`，其余值按 `patch` 处理。
 
 - `patch`：`git show`（提交自身的改动，默认）。
 - `worktree`：`git diff <hash>`（提交与当前工作区比较）。
@@ -249,6 +249,8 @@
 ### `GET /api/repositories/:id/solutions`
 
 列出仓库目录下所有 Visual Studio 解决方案文件（`*.sln`），**与 Git 状态无关**——直接扫描文件系统，包括未发生改动、已提交的文件。扫描时跳过 `.git` 目录，限制深度与文件数量以防超大仓库卡死，返回相对仓库根目录的 POSIX 路径。
+
+前端的 `.sln` 模式会对**所有已添加仓库**并发调用本接口并缓存结果，因此解决方案列表不局限于当前选中的仓库；重新扫描会清缓存后重新请求。
 
 ```json
 { "solutions": ["App.sln", "src/sub/Lib.sln"] }
@@ -333,18 +335,14 @@
 | `openTerminal` | `{}` | 在仓库目录打开终端 |
 | `openTortoiseGit` | `{}` | 用当前仓库打开 TortoiseGit 日志界面 |
 | `openVisualStudio` | `{ "path" }` | 用 Visual Studio 打开指定 `.sln` 解决方案（`path` 必须相对仓库且经过 `validateRepositoryPath` 校验） |
-| `checkoutRef` | `{ "ref" }` | 提交历史右键菜单：切换分支标签。本地分支 `git switch`；远端分支建同名跟踪分支；标签进入分离 HEAD；`origin/HEAD` 先解析符号引用 |
+| `checkoutRef` | `{ "ref" }` | 提交历史分支标签右键菜单：切换分支标签。本地分支 `git switch`；远端分支建同名跟踪分支；标签进入分离 HEAD；`origin/HEAD` 先解析符号引用 |
 | `checkoutCommit` | `{ "hash" }` | `git switch --detach <hash>` |
 | `createBranchAt` | `{ "name", "base", "switchTo" }` | 在指定提交/引用处创建分支；`switchTo=true` 时创建后立即切换 |
 | `createTagAt` | `{ "name", "base", "message" }` | 在指定提交/引用处创建标签；有 `message` 时创建附注标签 |
-| `cherryPick` | `{ "hash" }` | `git cherry-pick <hash>` |
-| `revertCommit` | `{ "hash" }` | `git revert --no-edit <hash>` |
-| `resetToCommit` | `{ "hash", "mode" }` | `git reset --soft\|mixed\|hard <hash>`，`mode` 只接受三者之一 |
-| `rebaseOnto` | `{ "hash" }` | `git rebase <hash>` |
 | `pushRef` | `{ "ref" }` | 把引用对应的本地分支/标签推送到远端 |
 | `deleteRef` | `{ "ref", "force" }` | 删除本地分支、标签或远端分支（远端通过 `git push --delete`） |
 
-以上引用/提交级动作的 `ref`、`base`、`hash`、`name` 都先经过 `validateRefArgument()` / `validateRevision()` / `validateCommitHash()` 校验，参数作为独立 argv 传给 Git，不接受任意 Git 参数。
+以上引用级动作的 `ref`、`base`、`hash`、`name` 都先经过 `validateRefArgument()` / `validateRevision()` / `validateCommitHash()` 校验，参数作为独立 argv 传给 Git，不接受任意 Git 参数。
 
 响应结构：
 

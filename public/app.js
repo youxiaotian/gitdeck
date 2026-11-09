@@ -28,8 +28,14 @@
     contextHistoryRequest: 0,
     fileFilter: "all",
     solutionFilter: false,
-    solutions: [],
+    // 解决方案不是「当前仓库的文件过滤」，而是跨仓库的快捷列表：
+    // 一次扫描所有已添加仓库，之后靠缓存、范围与关键字快速定位。
+    solutionCatalog: [],
+    solutionScope: "all",
+    solutionSearch: "",
+    solutionCache: new Map(),
     solutionsError: "",
+    solutionsLoading: false,
     solutionsRequest: 0,
     fileTreeMode: "tree",
     selectedFile: null,
@@ -130,6 +136,8 @@
     fileTreeTitle: document.getElementById("fileTreeTitle"),
     fileViewToggle: document.getElementById("fileViewToggle"),
     solutionFilterToggle: document.getElementById("solutionFilterToggle"),
+    solutionToolbar: document.getElementById("solutionToolbar"),
+    solutionSearchInput: document.getElementById("solutionSearchInput"),
     fileFilterBar: document.getElementById("fileFilterBar"),
     batchSelectionCount: document.getElementById("batchSelectionCount"),
     batchStageButton: document.getElementById("batchStageButton"),
@@ -467,6 +475,12 @@
     });
     elements.contextMenu.addEventListener("click", handleContextMenuClick);
     elements.fileGroups.addEventListener("dblclick", (event) => {
+      // 跨仓库解决方案列表：双击直接用该条目所属的仓库打开 VS。
+      const solutionRow = event.target.closest("[data-solution-key]");
+      if (solutionRow) {
+        requestOpenSolution(solutionRow.dataset.solutionKey);
+        return;
+      }
       const target = event.target.closest("[data-preview-file]");
       if (!target) {
         return;
@@ -476,6 +490,10 @@
         return;
       }
       openInVisualStudio(filePath);
+    });
+    elements.solutionSearchInput?.addEventListener("input", (event) => {
+      state.solutionSearch = event.target.value || "";
+      renderChanges(state.detail?.summary);
     });
     document.addEventListener("click", handleDocumentClick);
     document.addEventListener("contextmenu", handleContextMenu);
@@ -1338,50 +1356,142 @@
       );
   }
 
-  function toSolutionEntry(filePath) {
-    return { path: filePath, groups: new Set(), solution: true };
+  function makeSolutionKey(repositoryId, relativePath) {
+    return `${repositoryId}::${relativePath}`;
   }
 
-  // 开启解决方案过滤时，从后端扫描仓库目录下所有 .sln 文件（与 git 无关）。
-  // 请求失败绝不能伪装成「目录下没有 .sln」：旧版服务没有这个接口会返回 404，
-  // 必须明确提示后端需要重启，否则会把排查方向一直带到「目录里没文件」。
-  async function fetchSolutions() {
+  function toSolutionEntry(item) {
+    return {
+      path: item.display,
+      relativePath: item.path,
+      repositoryId: item.repositoryId,
+      repositoryName: item.repositoryName,
+      solutionKey: item.key,
+      groups: new Set(),
+      solution: true
+    };
+  }
+
+  function findSolutionByKey(key) {
+    return state.solutionCatalog.find((item) => item.key === key) || null;
+  }
+
+  // 解决方案不是「当前仓库的文件过滤」：一次汇总所有已添加仓库下的 .sln，
+  // 结果按仓库缓存在内存里。切换仓库、搜索、切范围都不再读磁盘，
+  // 只有「重新扫描」会清缓存。请求失败绝不能伪装成「目录下没有 .sln」。
+  async function fetchSolutions({ force = false } = {}) {
     if (!state.selectedId) {
       return;
     }
     const requestId = ++state.solutionsRequest;
-    const repositoryId = state.selectedId;
+    if (force) {
+      state.solutionCache.clear();
+    }
     state.solutionsError = "";
-    state.solutions = [];
+    state.solutionsLoading = true;
     renderChanges(state.detail?.summary);
 
-    try {
-      const data = await api(
-        `/api/repositories/${repositoryId}/solutions`,
-        { method: "GET" }
+    const pending = state.repositories.filter(
+      (repository) => !state.solutionCache.has(repository.id)
+    );
+    const failures = [];
+    // 一次最多 4 个并发，避免同时扫多个大仓库把界面拖住。
+    for (let index = 0; index < pending.length; index += 4) {
+      const batch = pending.slice(index, index + 4);
+      await Promise.all(
+        batch.map(async (repository) => {
+          try {
+            const data = await api(
+              `/api/repositories/${repository.id}/solutions`,
+              { method: "GET" }
+            );
+            if (requestId !== state.solutionsRequest) {
+              return;
+            }
+            state.solutionCache.set(
+              repository.id,
+              Array.isArray(data.solutions) ? data.solutions : []
+            );
+          } catch (error) {
+            if (requestId !== state.solutionsRequest) {
+              return;
+            }
+            failures.push(`${repository.name}：${error?.message || "读取失败"}`);
+          }
+        })
       );
       if (requestId !== state.solutionsRequest) {
         return;
       }
-      state.solutions = Array.isArray(data.solutions) ? data.solutions : [];
-    } catch (error) {
-      if (requestId !== state.solutionsRequest) {
-        return;
-      }
-      state.solutions = [];
-      const message = error?.message || "未知错误";
-      state.solutionsError = /接口不存在|404/.test(message)
-        ? "GitDeck 服务仍是旧版本，缺少解决方案接口。请重新运行 .\\start.cmd 重启服务后再试。"
-        : `读取解决方案失败：${message}`;
-      showToast("读取解决方案失败", state.solutionsError, "error");
     }
+
+    state.solutionsLoading = false;
+    state.solutionsError = /接口不存在|404/.test(failures[0] || "")
+      ? "GitDeck 服务仍是旧版本，缺少解决方案接口。请重新运行 .\\start.cmd 重启服务后再试。"
+      : failures.length
+        ? `有 ${failures.length} 个仓库读取失败：${failures
+            .slice(0, 2)
+            .join("；")}${failures.length > 2 ? "…" : ""}`
+        : "";
+    if (state.solutionsError) {
+      showToast("解决方案读取异常", state.solutionsError, "error");
+    }
+    buildSolutionCatalog();
     renderChanges(state.detail?.summary);
+  }
+
+  function buildSolutionCatalog() {
+    const catalog = [];
+    for (const repository of state.repositories) {
+      const paths = state.solutionCache.get(repository.id) || [];
+      for (const relative of paths) {
+        catalog.push({
+          key: makeSolutionKey(repository.id, relative),
+          repositoryId: repository.id,
+          repositoryName: repository.name,
+          path: relative,
+          display: `${repository.name}/${relative}`,
+          current: repository.id === state.selectedId
+        });
+      }
+    }
+    catalog.sort(
+      (left, right) =>
+        Number(right.current) - Number(left.current) ||
+        left.repositoryName.localeCompare(right.repositoryName, "zh-CN") ||
+        left.path.localeCompare(right.path, "zh-CN")
+    );
+    state.solutionCatalog = catalog;
+  }
+
+  function refreshSolutionCurrentFlag() {
+    for (const item of state.solutionCatalog) {
+      item.current = item.repositoryId === state.selectedId;
+    }
+  }
+
+  function getVisibleSolutions() {
+    const keyword = state.solutionSearch.trim().toLowerCase();
+    return state.solutionCatalog.filter((item) => {
+      if (
+        state.solutionScope === "current" &&
+        item.repositoryId !== state.selectedId
+      ) {
+        return false;
+      }
+      if (!keyword) {
+        return true;
+      }
+      return `${item.repositoryName} ${item.path}`
+        .toLowerCase()
+        .includes(keyword);
+    });
   }
 
   function getVisibleEntries(entries) {
     if (!entries) {
       entries = state.solutionFilter
-        ? state.solutions.map(toSolutionEntry)
+        ? getVisibleSolutions().map(toSolutionEntry)
         : collectChangedEntries(
             state.detail?.summary || {
               staged: [],
@@ -1391,7 +1501,7 @@
             }
           );
     }
-    // 解决方案模式：与 git 状态无关，直接展示目录下所有 .sln 文件，
+    // 解决方案模式：展示跨仓库汇总的 .sln 列表，与 git 状态无关，
     // 不再受「全部/未暂存/已暂存/未跟踪」状态筛选约束。
     if (state.solutionFilter) {
       return entries;
@@ -1403,13 +1513,16 @@
     });
   }
 
-  // 解决方案模式：直接展示仓库目录下所有 .sln 文件，与 git 状态无关。
+  // 解决方案模式：自己渲染跨仓库的快捷列表，不复用变更文件树，
+  // 避免把「仓库名 / 批量勾选 / 状态筛选」混进同一个视图。
   function renderSolutionView() {
-    const entries = state.solutions.map(toSolutionEntry);
-    const visibleEntries = getVisibleEntries(entries);
+    const visible = getVisibleSolutions();
+    const entries = visible.map(toSolutionEntry);
     elements.explorerCount.textContent = state.solutionsError
       ? "!"
-      : String(visibleEntries.length);
+      : String(visible.length);
+    // 这里不走 renderFileTree()，需要自己同步视图切换按钮与 solution-mode class。
+    updateFileViewToggle();
 
     elements.fileFilterBar.querySelectorAll("[data-file-filter]").forEach(
       (button) => button.classList.remove("active")
@@ -1417,16 +1530,33 @@
 
     if (
       !state.selectedFile ||
-      !state.solutions.includes(state.selectedFile.path)
+      !visible.some((item) => item.key === state.selectedFile.solutionKey)
     ) {
-      state.selectedFile = visibleEntries.length ? visibleEntries[0] : null;
+      state.selectedFile = entries.length ? entries[0] : null;
       state.previewKey = "";
       resetEditor();
     }
 
-    renderFileTree(visibleEntries);
+    elements.fileGroups.innerHTML = renderSolutionList(visible);
     renderPreviewHeader();
 
+    renderSolutionPreview();
+  }
+
+  // 只重建右侧预览区。单击选中时绝不能重建左侧列表 DOM：浏览器要求
+  // 双击的两次 click 落在同一个元素上，重建列表会让 dblclick 彻底丢失，
+  // 表现为「双击 .sln 没有任何反应」。
+  function renderSolutionPreview() {
+    if (state.solutionsLoading) {
+      elements.filePreview.innerHTML = `
+        <div class="preview-placeholder">
+          ${icon("search")}
+          <strong>正在汇总解决方案</strong>
+          <span>正在扫描所有已添加仓库里的 .sln 文件…</span>
+        </div>
+      `;
+      return;
+    }
     if (state.solutionsError) {
       elements.filePreview.innerHTML = `
         <div class="preview-placeholder">
@@ -1435,41 +1565,161 @@
           <span>${escapeHtml(state.solutionsError)}</span>
         </div>
       `;
-    } else if (state.selectedFile) {
+      return;
+    }
+    if (state.selectedFile) {
       elements.filePreview.innerHTML = `
         <div class="preview-placeholder">
           ${icon("external-link")}
           <strong>Visual Studio 解决方案</strong>
-          <span>${escapeHtml(state.selectedFile.path)}</span>
-          <span>双击文件，或在上方点击「用 Visual Studio 打开」。</span>
+          <span>${escapeHtml(state.selectedFile.repositoryName)}</span>
+          <span>${escapeHtml(state.selectedFile.relativePath)}</span>
+          <span>双击列表项，或点击上方「用 Visual Studio 打开」。</span>
         </div>
       `;
-    } else {
-      elements.filePreview.innerHTML = `
-        <div class="preview-placeholder">
+      return;
+    }
+    const filtered = state.solutionCatalog.length > 0;
+    elements.filePreview.innerHTML = `
+      <div class="preview-placeholder">
+        ${icon("search")}
+        <strong>${filtered ? "没有匹配的解决方案" : "没有找到 .sln 文件"}</strong>
+        <span>${
+          filtered
+            ? "换个关键字，或切换到「全部仓库」。"
+            : "已扫描全部已添加仓库的目录；解决方案若在这些目录之外，需要手动指定路径。"
+        }</span>
+      </div>
+    `;
+  }
+
+  // 单击只切选中态 + 刷新右侧预览，列表节点保持不变，双击才能成立。
+  function selectSolutionItem(key) {
+    const item = findSolutionByKey(key);
+    if (!item) {
+      return;
+    }
+    state.selectedFile = toSolutionEntry(item);
+    state.previewMode = "diff";
+    state.previewKey = "";
+    resetEditor();
+    elements.fileGroups.querySelectorAll("[data-solution-key]").forEach(
+      (row) => row.classList.toggle("selected", row.dataset.solutionKey === key)
+    );
+    renderPreviewHeader();
+    renderSolutionPreview();
+  }
+
+  // 真实鼠标双击会先派发两次 click（第二次 detail=2）再派发 dblclick；
+  // 两条路径都指向这里，用短时去重保证只打开一次。
+  let lastSolutionOpen = { key: "", at: 0 };
+  function requestOpenSolution(key) {
+    const now = Date.now();
+    if (lastSolutionOpen.key === key && now - lastSolutionOpen.at < 800) {
+      return;
+    }
+    lastSolutionOpen = { key, at: now };
+    const item = findSolutionByKey(key);
+    if (item) {
+      openInVisualStudio(item);
+    }
+  }
+
+  function renderSolutionList(items) {
+    if (state.solutionsLoading && !items.length) {
+      return `
+        <div class="solution-list-empty">
           ${icon("search")}
-          <strong>目录下没有 .sln 文件</strong>
-          <span>当前仓库目录中未找到任何 Visual Studio 解决方案文件。</span>
+          <span>正在汇总所有仓库的 .sln 文件…</span>
         </div>
       `;
     }
+    if (state.solutionsError && !items.length) {
+      return `
+        <div class="solution-list-empty group-empty-error">
+          ${icon("alert")}
+          <span>${escapeHtml(state.solutionsError)}</span>
+        </div>
+      `;
+    }
+    if (!items.length) {
+      const filtered = state.solutionCatalog.length > 0;
+      return `
+        <div class="solution-list-empty">
+          ${icon("search")}
+          <strong>${filtered ? "没有匹配的解决方案" : "没有找到 .sln 文件"}</strong>
+          <span>${
+            filtered
+              ? "换个关键字，或切换到「全部仓库」。"
+              : "已扫描全部已添加仓库；点「重新扫描」重试。"
+          }</span>
+          <button
+            type="button"
+            class="button button-quiet"
+            data-solution-${filtered ? "clear-filters" : "rescan"}
+          >${filtered ? "清空筛选" : "重新扫描"}</button>
+        </div>
+      `;
+    }
+    const repositoryCount = new Set(items.map((item) => item.repositoryId)).size;
+    const rows = items
+      .map((item) => {
+        const active = state.selectedFile?.solutionKey === item.key;
+        return `
+          <button
+            type="button"
+            class="solution-row ${active ? "selected" : ""} ${
+              item.current ? "current" : ""
+            }"
+            data-solution-key="${escapeHtml(item.key)}"
+            data-solution-select="${escapeHtml(item.key)}"
+            title="${escapeHtml(
+              `${item.repositoryName}/${item.path}　双击用 Visual Studio 打开`
+            )}"
+          >
+            <span class="solution-repo">${escapeHtml(item.repositoryName)}</span>
+            <span class="solution-path">${escapeHtml(item.path)}</span>
+            <span class="solution-vs-badge">VS</span>
+          </button>
+        `;
+      })
+      .join("");
+    return `
+      <div class="solution-list">
+        <div class="solution-list-head">
+          共 ${items.length} 个 · 来自 ${repositoryCount} 个仓库 · 双击用 VS 打开
+        </div>
+        ${rows}
+      </div>
+    `;
+  }
+
+  function updateSolutionToolbar() {
+    if (!elements.solutionToolbar) {
+      return;
+    }
+    elements.solutionToolbar.hidden = !state.solutionFilter;
+    if (!state.solutionFilter) {
+      return;
+    }
+    if (
+      elements.solutionSearchInput &&
+      elements.solutionSearchInput.value !== state.solutionSearch
+    ) {
+      elements.solutionSearchInput.value = state.solutionSearch;
+    }
+    elements.solutionToolbar
+      .querySelectorAll("[data-solution-scope]")
+      .forEach((button) => {
+        const active = button.dataset.solutionScope === state.solutionScope;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
   }
 
   function renderFileTree(entries) {
     updateFileViewToggle();
     updateBatchSelectionUi(entries);
-    if (state.solutionFilter && state.solutionsError) {
-      elements.fileGroups.innerHTML = `
-        <div class="group-empty group-empty-error">
-          ${icon("alert")}
-          <div>
-            <strong>无法读取解决方案列表</strong>
-            <span>${escapeHtml(state.solutionsError)}</span>
-          </div>
-        </div>
-      `;
-      return;
-    }
     if (!entries.length) {
       elements.fileGroups.innerHTML = `
         <div class="group-empty">
@@ -1535,6 +1785,7 @@
         state.solutionFilter
       );
     }
+    updateSolutionToolbar();
   }
 
   function renderFlatFileList(entries) {
@@ -2008,8 +2259,13 @@
     if (entry) {
       return entry;
     }
-    if (state.solutionFilter && state.solutions.includes(filePath)) {
-      return toSolutionEntry(filePath);
+    if (state.solutionFilter) {
+      const item = state.solutionCatalog.find(
+        (entry) => entry.display === filePath || entry.key === filePath
+      );
+      if (item) {
+        return toSolutionEntry(item);
+      }
     }
     return null;
   }
@@ -2048,17 +2304,52 @@
     return Boolean(filePath) && filePath.toLowerCase().endsWith(".sln");
   }
 
-  function openInVisualStudio(filePath) {
-    if (!state.selectedId) {
+  // target 可以是「当前仓库里的相对路径」，也可以是跨仓库列表里的条目；
+  // 后者带上 repositoryId，才能在不切换当前仓库的情况下打开别的仓库的 .sln。
+  // 打开 VS 是纯启动动作，刻意不走 performRepoAction：那条路径会把仓库标记为
+  // busy（其它 Git 操作进行中就会被静默丢弃），并在成功后重渲染整个详情面板，
+  // 既拖慢反馈又会重建 .sln 列表。这里只发一次动作请求并独立反馈结果。
+  async function openInVisualStudio(target) {
+    const item = typeof target === "string" ? null : target;
+    const repositoryId = item?.repositoryId || state.selectedId;
+    const relativePath =
+      item?.relativePath ||
+      item?.path ||
+      (typeof target === "string" ? target : state.selectedFile?.path);
+    if (!repositoryId || !relativePath) {
+      showToast(
+        "无法打开解决方案",
+        "没有找到解决方案所属的仓库或文件路径。",
+        "error"
+      );
       return;
     }
-    if (!isSolutionFile(filePath)) {
-      showToast("不是解决方案文件", "只能双击打开 .sln 文件。", "warning");
+    if (!isSolutionFile(relativePath)) {
+      showToast("不是解决方案文件", "只能打开 .sln 文件。", "warning");
       return;
     }
-    performRepoAction(state.selectedId, "openVisualStudio", {
-      path: filePath
-    }).catch(() => {});
+    const repository = state.repositories.find(
+      (entry) => entry.id === repositoryId
+    );
+    // Visual Studio 首次启动可能要几十秒，先给即时反馈，避免看起来「没反应」。
+    showToast(
+      "正在启动 Visual Studio",
+      `${repository?.name || "仓库"} / ${relativePath}`,
+      "success"
+    );
+    try {
+      const result = await api(`/api/repositories/${repositoryId}/action`, {
+        method: "POST",
+        body: { action: "openVisualStudio", path: relativePath }
+      });
+      showToast(
+        "已用 Visual Studio 打开",
+        result.output || relativePath,
+        "success"
+      );
+    } catch (error) {
+      showToast("打开解决方案失败", error?.message || "未知错误", "error");
+    }
   }
 
   function requestPreviewMode(mode) {
@@ -2122,7 +2413,7 @@
       }).catch(() => {});
     }
     if (action === "openSolution") {
-      openInVisualStudio(state.selectedFile.path);
+      openInVisualStudio(state.selectedFile);
     }
   }
 
@@ -2954,10 +3245,16 @@
     state.contextHistoryKey = "";
     state.contextHistoryRequest += 1;
     state.fileFilter = "all";
-    state.solutionFilter = false;
-    state.solutions = [];
+    // 解决方案是跨仓库的快捷列表，切换仓库不该把它关掉，也不该打断在途的全局扫描。
     state.solutionsError = "";
-    state.solutionsRequest += 1;
+    refreshSolutionCurrentFlag();
+    if (
+      state.solutionFilter &&
+      !state.solutionCatalog.length &&
+      !state.solutionCache.size
+    ) {
+      fetchSolutions();
+    }
     state.selectedFiles.clear();
     state.batchBusy = false;
     state.branchSelection.clear();
@@ -3236,13 +3533,50 @@
     const solutionFilter = event.target.closest("[data-action='toggle-solution-filter']");
     if (solutionFilter) {
       state.solutionFilter = !state.solutionFilter;
-      state.solutionsRequest += 1;
       state.solutionsError = "";
+      state.selectedFile = null;
+      // 取消普通文件模式的在途预览，避免它回来覆盖解决方案预览区。
+      state.previewRequest += 1;
+      state.previewLoading = false;
+      state.previewKey = "";
       if (state.solutionFilter) {
+        // 不要在 fetchSolutions() 之外额外递增 solutionsRequest：旧实现正是
+        // 因为多处递增 + 选中态变化，把已经成功的扫描结果当成过期请求丢掉了。
         fetchSolutions();
       } else {
-        state.solutions = [];
+        state.solutionsRequest += 1;
+        state.solutionsLoading = false;
         renderChanges(state.detail?.summary);
+      }
+      return;
+    }
+
+    const solutionScope = event.target.closest("[data-solution-scope]");
+    if (solutionScope) {
+      state.solutionScope =
+        solutionScope.dataset.solutionScope === "current" ? "current" : "all";
+      renderChanges(state.detail?.summary);
+      return;
+    }
+    if (event.target.closest("[data-solution-rescan]")) {
+      fetchSolutions({ force: true });
+      return;
+    }
+    if (event.target.closest("[data-solution-clear-filters]")) {
+      state.solutionSearch = "";
+      state.solutionScope = "all";
+      renderChanges(state.detail?.summary);
+      return;
+    }
+    const solutionRow = event.target.closest("[data-solution-select]");
+    if (solutionRow) {
+      const key = solutionRow.dataset.solutionSelect;
+      // 只做增量更新，绝不重建列表：否则同一元素连续两次点击的
+      // dblclick 判定会失效，双击打开会被静默吞掉。
+      selectSolutionItem(key);
+      // 兜底：部分输入设备不派发 dblclick，但第二次 click 的 detail=2 可靠。
+      if (event.detail >= 2) {
+        requestOpenSolution(key);
       }
       return;
     }
@@ -3433,19 +3767,21 @@
       });
       return;
     }
-    const historyRow = event.target.closest(".context-history-row");
-    if (!historyRow || !state.selectedId) {
+    // 只有分支/标签徽标才提供右键菜单。右键历史行的其它位置保持浏览器
+    // 默认行为（复制文字等），不再弹出与分支操作无关的提交级菜单。
+    const decoration = event.target.closest(".context-history-decoration");
+    if (!decoration || !state.selectedId) {
+      return;
+    }
+    const historyRow = decoration.closest(".context-history-row");
+    if (!historyRow) {
       return;
     }
     event.preventDefault();
-    const row = historyRowContext(historyRow);
-    const position = { left: event.clientX, top: event.clientY };
-    const decoration = event.target.closest(".context-history-decoration");
-    if (decoration) {
-      openRefMenu(row, decoration, position);
-    } else {
-      openCommitMenu(row, position);
-    }
+    openRefMenu(historyRowContext(historyRow), decoration, {
+      left: event.clientX,
+      top: event.clientY
+    });
   }
 
   function handleKeydown(event) {
@@ -4270,7 +4606,7 @@
     }
   }
 
-  // 仓库行 / 历史分支标签 / 历史提交行共用同一个 #contextMenu。
+  // 仓库行 / 历史分支标签共用同一个 #contextMenu。
   // state.menuContext 保存当前菜单的上下文，动作分发据此区分场景。
   function showContextMenu({ label, items, position, context }) {
     state.menuContext = context;
@@ -4425,9 +4761,9 @@
     }
   }
 
-  // ---- 提交历史右键菜单 ----
-  // 参考 TortoiseGit 日志窗口的上下文菜单：分支标签侧重「快速切换到该分支」，
-  // 提交行侧重「比较 / 合并 / 重置 / 建分支标签 / 遴选 / 还原 / 复制」。
+  // ---- 提交历史分支标签右键菜单 ----
+  // 参考 TortoiseGit 日志窗口的上下文菜单，只服务于分支/标签徽标：
+  // 首项是「快速切换到该分支」，其余为该引用可执行的分支级操作。
 
   function historyRowContext(historyRow) {
     const hash = historyRow.dataset.commitHash || "";
@@ -4438,9 +4774,7 @@
       repoId: state.selectedId,
       hash,
       shortHash: row?.shortHash || hash.slice(0, 7),
-      subject: row?.subject || "",
-      author: row?.author || "",
-      date: row?.date || ""
+      subject: row?.subject || ""
     };
   }
 
@@ -4526,73 +4860,6 @@
     });
   }
 
-  function openCommitMenu(row, position) {
-    showContextMenu({
-      label: `提交 ${row.shortHash} · ${row.subject}`,
-      position,
-      context: { ...row, type: "commit" },
-      items: [
-        {
-          action: "commit-patch",
-          label: "显示此提交的改动",
-          icon: "eye",
-          primary: true
-        },
-        {
-          action: "commit-compare-worktree",
-          label: "与工作区比较",
-          icon: "list"
-        },
-        {
-          action: "commit-compare-previous",
-          label: "与上一版本比较",
-          icon: "history"
-        },
-        { separator: true },
-        {
-          action: "merge-commit",
-          label: "合并此提交到当前分支…",
-          icon: "corner-down-left"
-        },
-        {
-          action: "reset-to-commit",
-          label: "重置当前分支到此提交…",
-          icon: "undo"
-        },
-        {
-          action: "rebase-onto",
-          label: "变基当前分支到此提交…",
-          icon: "git-branch"
-        },
-        { separator: true },
-        { action: "checkout-commit", label: "切换到此提交…", icon: "commit" },
-        { action: "create-branch-at", label: "在此版本创建分支…", icon: "plus" },
-        { action: "create-tag-at", label: "在此版本创建标签…", icon: "plus" },
-        { action: "cherry-pick", label: "遴选此提交…", icon: "check" },
-        {
-          action: "revert-commit",
-          label: "还原此提交引入的更改…",
-          icon: "undo"
-        },
-        { separator: true },
-        { action: "copy-hash", label: "复制提交哈希", icon: "commit" },
-        { action: "copy-subject", label: "复制提交说明", icon: "list" },
-        {
-          action: "copy-commit-info",
-          label: "复制提交完整信息",
-          icon: "list"
-        },
-        { separator: true },
-        { action: "open-explorer", label: "浏览仓库", icon: "folder-open" },
-        {
-          action: "open-tgit",
-          label: "用 TortoiseGit 查看日志",
-          icon: "external-link"
-        }
-      ]
-    });
-  }
-
   async function handleHistoryMenuAction(action, context) {
     const repoId = context.repoId;
     const hash = context.hash;
@@ -4616,19 +4883,6 @@
     }
     if (action === "copy-hash") {
       await copyText(hash, "提交哈希已复制");
-      return;
-    }
-    if (action === "copy-subject") {
-      await copyText(context.subject, "提交说明已复制");
-      return;
-    }
-    if (action === "copy-commit-info") {
-      await copyText(
-        [hash, context.author, context.date, context.subject]
-          .filter(Boolean)
-          .join("\n"),
-        "提交信息已复制"
-      );
       return;
     }
     if (action === "open-explorer") {
@@ -4669,17 +4923,6 @@
       });
       return;
     }
-    if (action === "merge-commit") {
-      showConfirm({
-        eyebrow: "合并提交",
-        title: "合并此提交到当前分支？",
-        message: `即将把提交 <strong>${shortHash}</strong> 合并到当前分支。冲突会留在工作区等待处理。`,
-        confirmLabel: "合并",
-        onConfirm: () =>
-          performRepoAction(repoId, "mergeBranch", { name: hash })
-      });
-      return;
-    }
     if (action === "checkout-commit") {
       showConfirm({
         eyebrow: "检出提交",
@@ -4688,62 +4931,6 @@
         confirmLabel: "检出",
         onConfirm: () =>
           performRepoAction(repoId, "checkoutCommit", { hash })
-      });
-      return;
-    }
-    if (action === "reset-to-commit") {
-      showConfirm({
-        eyebrow: "重置分支",
-        title: "重置当前分支到此提交？",
-        message: `当前分支的 HEAD 会移动到 <strong>${shortHash}</strong>。<strong>hard</strong> 会丢弃工作区与暂存区的未提交改动。`,
-        danger: true,
-        confirmLabel: "重置",
-        bodyExtra: `
-          <div class="form-field">
-            <label for="historyResetMode">重置模式</label>
-            <select id="historyResetMode">
-              <option value="mixed">mixed：保留工作区，取消暂存</option>
-              <option value="soft">soft：保留工作区和暂存</option>
-              <option value="hard">hard：丢弃工作区与暂存的改动</option>
-            </select>
-          </div>
-        `,
-        onConfirm: () =>
-          performRepoAction(repoId, "resetToCommit", {
-            hash,
-            mode: document.getElementById("historyResetMode")?.value || "mixed"
-          })
-      });
-      return;
-    }
-    if (action === "rebase-onto") {
-      showConfirm({
-        eyebrow: "变基",
-        title: "变基当前分支到此提交？",
-        message: `当前分支在 <strong>${shortHash}</strong> 之后的提交会被重新应用，提交哈希将改变。已推送的分支变基前请确认没有协作者在用。`,
-        danger: true,
-        confirmLabel: "变基",
-        onConfirm: () => performRepoAction(repoId, "rebaseOnto", { hash })
-      });
-      return;
-    }
-    if (action === "cherry-pick") {
-      showConfirm({
-        eyebrow: "遴选提交",
-        title: "遴选此提交？",
-        message: `会把 <strong>${shortHash}</strong> 的改动应用为一个新提交。出现冲突时需要手动解决。`,
-        confirmLabel: "遴选",
-        onConfirm: () => performRepoAction(repoId, "cherryPick", { hash })
-      });
-      return;
-    }
-    if (action === "revert-commit") {
-      showConfirm({
-        eyebrow: "还原提交",
-        title: "还原此提交引入的更改？",
-        message: `会创建一个反向提交来撤销 <strong>${shortHash}</strong>，不会改写已有历史。`,
-        confirmLabel: "还原",
-        onConfirm: () => performRepoAction(repoId, "revertCommit", { hash })
       });
       return;
     }

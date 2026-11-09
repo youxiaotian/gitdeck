@@ -2,6 +2,37 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-09 - 修掉 .sln 列表「双击打开没反应」
+
+- 用户反馈：列表能列出 16 个 `.sln`，但双击完全没反应。**先排除后端**：拦截 `spawn` 实证 `vswhere.exe` 定位到 `VS2022 Enterprise\Common7\IDE\devenv.exe`、参数是正确的绝对 `.sln` 路径；运行中服务 `POST /action` 的 `openVisualStudio` 分支可达（非法路径按预期返回 400）；`AgisoCodes.Work` 的 `/solutions` 返回 16 个。后端整条链路没问题。
+- 根因在前端交互：单击 `[data-solution-select]` 时调用 `renderChanges()` → `renderSolutionView()` → `elements.fileGroups.innerHTML = ...` **重建了列表 DOM**。浏览器要求双击的两次 `click` 落在同一元素上，节点被换掉后 `dblclick` 根本不会派发，于是「双击毫无反应」。上一轮 CDP 探针用 `dispatchEvent(new MouseEvent('dblclick'))` 直接派发事件，绕过了真实鼠标序列，所以没测出来。
+- 次要问题：`openInVisualStudio()` 原先走 `performRepoAction()`，仓库被其它 Git 操作标记为 busy 时会静默 `return null`；成功后还会重渲染整个详情面板，拖慢反馈。
+- 改动（**纯前端，F5 即生效，不用重启后端**）：
+  - 抽出 `renderSolutionPreview()` 只重建右侧预览；新增 `selectSolutionItem()` 单击时仅增量切 `.selected` class + 刷新预览头与预览区，**列表节点保持不变**。
+  - `requestOpenSolution()` 汇总 `dblclick` 与第二次 `click(detail>=2)` 两条通道（兼容不派发 `dblclick` 的输入设备），用 800ms 短时去重保证只打开一次。
+  - `openInVisualStudio()` 改为 `async` 直接调 `api()` 发 `openVisualStudio` 动作，自带「正在启动 / 已打开 / 打开失败」反馈，不再进 busy 队列、不再触发整页重渲染。
+- 验证：`node --test` 40/40（新增防回归断言：单击函数内不得出现 `renderChanges` / `fileGroups.innerHTML`、双击双通道与去重、打开不得经 `performRepoAction`）、`check-docs`；真实浏览器改用 CDP `Input.dispatchMouseEvent` 发**真实鼠标双击序列**（隔离 `PORT=4407` + 两个临时仓库）：单击后列表节点 `isSameNode=true`、两次双击都派发 `dblclick`、3 次打开请求路径分别为 `App.sln` / `App.sln` / `src/Lib.sln` 且都指向仓库 A、去重生效、控制台 0 错误。
+
+## 2026-11-09 - .sln 改为跨仓库汇总，修掉「明明有文件却显示 0」
+
+- 用户反馈（该功能第 4 次返工）：选中的是 `AgisoCodes.Work`，界面却显示 0 与「目录下没有 .sln 文件」。
+- 取证：运行中服务 `GET /app.js` 带 `Cache-Control: no-store` 且返回最新代码；对 24 个仓库逐一调 `/solutions` 全部正常（有 `.sln` 的返回 1~16 个，与文件系统一致，其中 `AgisoCodes.Work` 为 16 个）。所以后端扫描没问题，问题在前端「只请求当前选中仓库这一条」的脆弱状态链：选中态与在途请求很容易把成功结果判为过期丢弃；常驻 `--app` 窗口不刷新也会一直跑旧 JS。
+- 改动（**纯前端，F5 即生效，不用重启后端**）：
+  - `.sln` 从「当前仓库的文件过滤」改为「跨仓库解决方案快捷列表」：`fetchSolutions()` 并发（4 个一批）扫所有已添加仓库，结果按仓库缓存在 `state.solutionCache`；`buildSolutionCatalog()` 汇总成带仓库名与唯一 `key` 的目录；`getVisibleSolutions()` 按 `solutionScope` / `solutionSearch` 过滤。
+  - 新增 `#solutionToolbar`：搜索框、全部仓库/当前仓库、重新扫描（清缓存）。`renderSolutionView()` / `renderSolutionList()` 独立渲染，不再复用变更文件树；空态区分「没有匹配结果」（一键清空筛选）与「所有仓库都没扫到」（重新扫描），不再是死胡同。
+  - 双击或预览区按钮用 `openInVisualStudio(target)` 携带目标 `repositoryId`，打开其它仓库的 `.sln` 无需先切换仓库；切换仓库不再关闭模式、也不打断在途的全局扫描（`solutionsRequest` 只在扫描自身与关闭模式时变化）。
+  - 保留 404 → 提示重新运行 `start.cmd` 的明确错误态；删除「目录下没有 .sln 文件」这类把「当前仓库没有」误报成「物理目录没有」的文案。
+- 验证：`node --test` 40/40、`check-docs`；真实浏览器（隔离 `PORT=4405` + CDP + 两个临时仓库，A 有 3 个 `.sln`、B 无）：A 下 3 个（含子目录）全部列出 → 切到 B 仍显示 3 个 → 搜索「Lib」剩 1 → 仅当前仓库 0 且可恢复 → 切回全部 3 → 重新扫描重新请求 4 次 → 单击预览正确 → 双击发出的 `openVisualStudio` 指向 A 仓库且 `path=App.sln` → 控制台 0 错误。
+- 文档同步：`FEATURES.md`、`MAP.md`、`UI-MAP.md`、`API.md`、`TESTING.md`、本文件；`tests/project-files.test.js` 增加跨仓库与旧实现防回归断言。
+
+## 2026-11-09 - 右键菜单收敛为「只在分支标签上」
+
+- 用户反馈：右键提交历史行（非分支标签）弹出的比较 / 合并 / 重置 / 变基 / 遴选 / 还原等提交级菜单没用，主要需要的是操作分支的能力。
+- 改动（前端 `public/app.js`）：`handleContextMenu()` 只有命中 `.context-history-decoration` 且能定位到所属 `.context-history-row` 时才 `preventDefault()` 并打开 `openRefMenu()`；历史行其它位置保留浏览器默认菜单。删除 `openCommitMenu()`、`merge-commit` / `reset-to-commit` / `rebase-onto` / `cherry-pick` / `revert-commit` / `copy-subject` / `copy-commit-info` 动作分支与 `#historyResetMode` 表单；`historyRowContext()` 精简为 `repoId` / `hash` / `shortHash` / `subject`。
+- 改动（后端 `src/git-actions.js`）：删除已无入口的 `cherryPick` / `revertCommit` / `resetToCommit` / `rebaseOnto` 四个 action 及实现；分支标签菜单所需的 `checkoutRef` / `checkoutCommit` / `createBranchAt` / `createTagAt` / `pushRef` / `deleteRef` 与 `GET commit` 差异接口保持不变。
+- 验证：`node --check`、`node --test`、`node tools/check-docs.js`；隔离服务 + 无头 Chrome/CDP 验证「右键非徽标不弹自定义菜单、右键徽标仍可弹出并切换分支」。
+- 文档与测试同步：`API.md`、`MAP.md`、`UI-MAP.md`、`FEATURES.md`、`TESTING.md`、本文件；`tests/project-files.test.js` 增加防回归断言（`openCommitMenu` / `type: "commit"` / 四个提交级 action 不得回来），`tests/api.test.js` 的无参哈希校验改走 `checkoutCommit`。
+
 ## 2026-11-09 - 提交历史增加 TortoiseGit 风格右键菜单
 
 - 用户反馈：右键提交历史里的分支标签时，希望能像 TortoiseGit 那样弹出菜单，快速切换到该分支；整套右键菜单也可参考乌龟补齐相关功能。

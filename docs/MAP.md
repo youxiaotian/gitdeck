@@ -29,7 +29,7 @@
 | 选中文件提交 | `src/git-actions.js` | `commitSelected()`、`normalizePaths()` |
 | 还原/删除文件 | `src/git-actions.js` | `discardPath()`、`discardPaths()` |
 | 分支切换/创建/合并 | `src/git-actions.js` | `checkoutBranch()`、`createBranch()`、`mergeBranch()`、`validateBranchName()` |
-| 历史右键：引用/提交级动作 | `src/git-actions.js` | `checkoutRef()`、`checkoutCommit()`、`createBranchAt()`、`createTagAt()`、`cherryPick()`、`revertCommit()`、`resetToCommit()`、`rebaseOnto()`、`pushRef()`、`deleteRef()`、`validateRefArgument()`、`validateRevision()`、`validateCommitHash()`、`refExists()`、`splitRemoteRef()` |
+| 历史徽标右键：引用级动作 | `src/git-actions.js` | `checkoutRef()`、`checkoutCommit()`、`createBranchAt()`、`createTagAt()`、`pushRef()`、`deleteRef()`、`validateRefArgument()`、`validateRevision()`、`validateCommitHash()`、`refExists()`、`splitRemoteRef()` |
 | 分支删除（本地+远程） | `src/git-actions.js` | `deleteBranches()` |
 | 提交差异（只读） | `src/git-actions.js` | `getCommitChanges()`（`patch` / `worktree` / `previous`，根提交回退） |
 | Stash | `src/git-actions.js` | `stashPop()`（`stashSave` 在 switch 内联） |
@@ -61,7 +61,7 @@
 | 工作区下拉 | `renderWorkspacePicker()`、`openWorkspaceDropdown()`、`closeWorkspaceDropdown()` |
 | 主面板/仓库视图 | `renderMain()`、`renderRepositoryView()` |
 | 变更文件树/平铺 | `renderChanges()`、`renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`、`updateFileViewToggle()`、`getVisibleEntries()` |
-| .sln 过滤与用 VS 打开 | 与 Git 无关：按钮开启后 `fetchSolutions()` 调 `GET /api/repositories/:id/solutions` 扫描目录所有 `.sln`，经 `renderSolutionView()` 展示并隐藏状态筛选条/批量勾选；双击或预览区 `openSolution` 调 `openInVisualStudio()`；关键函数 `solutionFilter` 状态、`toggle-solution-filter`、`toSolutionEntry()`、`resolveFileEntry()`、`isSolutionFile()`、`openInVisualStudio()`、`elements.fileGroups` 的 `dblclick` 监听；后端 `directories.listSolutions()`、`shell.openVisualStudio()`、`git-actions` 的 `openVisualStudio` 动作 |
+| .sln 解决方案快捷列表 | 与 Git 无关：按钮开启后 `fetchSolutions()` 并发调所有仓库的 `GET /api/repositories/:id/solutions` 并缓存在 `state.solutionCache`，`buildSolutionCatalog()` 汇总为带仓库名的目录；`getVisibleSolutions()` 按 `solutionScope` / `solutionSearch` 过滤，`renderSolutionView()` + `renderSolutionList()` 独立渲染，`updateSolutionToolbar()` 同步搜索/范围/重新扫描；`renderSolutionPreview()` 只重建右侧预览，`selectSolutionItem()` 单击时仅增量切 `.selected`（**不重建列表 DOM，否则浏览器不派发 `dblclick`**），`requestOpenSolution()` 汇总 `dblclick` 与 `click(detail>=2)` 并短时去重；双击 `[data-solution-key]` 或预览区 `openSolution` 调 `openInVisualStudio(target)`，独立发动作请求、自带即时/成功/失败反馈，不走 `performRepoAction()` 的 busy 队列，并带上条目所属 `repositoryId`。切换仓库不关闭模式（`refreshSolutionCurrentFlag()`）。后端不变：`directories.listSolutions()`、`shell.openVisualStudio()`、`openVisualStudio` 动作 |
 | 文件状态 | `fileStatus()`、`collectChangedEntries()` |
 | Diff/编辑器 | `loadFilePreview()`、`renderPreviewHeader()`、`renderEditor()`、`saveEditor()`、`revertEditorChanges()` |
 | 选中提交 | `updateComposerState()`、`submitCommit()` |
@@ -75,7 +75,7 @@
 | 扫描结果全选 / 反选与已选清单 | `renderScanModalBody()`（含 `data-scan-name`）、`scanRepositoryInputs()`、`updateScanSelectionUI()`、`handleModalAction()` 的 `scan-select-all` / `scan-invert-selection` |
 | 事件分发 | `handleDocumentClick()`、`handleKeydown()` |
 | 分栏拖动 | `initializeResizers()`、`setResizerWidth()` |
-| 右键菜单（仓库行 / 历史徽标 / 历史行） | `showContextMenu()`、`openRepoMenu()`、`openRefMenu()`、`openCommitMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`hideContextMenu()`、`copyText()` |
+| 右键菜单（仓库行 / 历史徽标） | `showContextMenu()`、`openRepoMenu()`、`openRefMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`hideContextMenu()`、`copyText()` |
 | 提交差异与引用表单弹窗 | `openCommitChanges()`、`openCreateRefAtModal()`、`createHistoryRefFromModal()` |
 | 批量仓库操作 | `toggleBulkRepository()`、`requestBulkAction()`、`executeBulkAction()`、`requestBulkRemoveRepositories()` |
 | 提示 | `showToast()` |

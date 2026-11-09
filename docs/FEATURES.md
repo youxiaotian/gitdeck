@@ -77,8 +77,11 @@
 - 变更文件按真实目录层级显示。
 - 可在文件夹树视图和带完整路径的平铺列表之间切换。
 - 支持全部、未暂存、已暂存、未跟踪筛选。
-- 文件列表工具区提供 `.sln` 过滤按钮：**开启后与 Git 状态完全无关**，直接扫描仓库目录下所有 `.sln` 文件（包括未发生改动、已提交的文件）并展示，不再受「全部/未暂存/已暂存/未跟踪」约束，状态筛选条与批量暂存勾选也会一并隐藏。关闭后恢复普通 Git 变更视图。
-- 双击 `.sln` 文件（或在选中它后点击预览区的「用 Visual Studio 打开」）会用本机 Visual Studio 直接打开该解决方案。
+- 文件列表工具区的 `.sln` 按钮开启后进入「解决方案」模式：与 Git 状态完全无关，**一次汇总所有已添加仓库**里递归找到的全部 `.sln`（含未发生改动、已提交、子目录中的文件），文件列表变成带仓库名的快捷列表；状态筛选条与批量暂存勾选隐藏。关闭后恢复普通 Git 变更视图。
+- 列表顶部提供搜索框（按仓库名/路径过滤）、「全部仓库 / 当前仓库」范围切换与「重新扫描」。扫描结果按仓库缓存在内存：切换仓库、搜索、切范围都不会重复读磁盘；切换仓库也不会关闭该模式，只更新「当前仓库」标记。
+- 单击选中后右侧预览显示仓库与相对路径；**双击列表项**或点击「用 Visual Studio 打开」会按该解决方案所属的仓库直接打开，不必先切换仓库。
+- 双击链路专门防「点了没反应」：单击只增量切换选中态（**不重建列表 DOM**，否则浏览器不会把它判定为同一元素连续两次点击，`dblclick` 根本不派发）；真实双击由 `dblclick` 与第二次 `click(detail=2)` 双通道触发并短时去重。打开前即时提示「正在启动 Visual Studio」，失败明确报错；打开请求不进入通用 Git 动作队列，避免被其它仓库操作的 busy 锁静默丢弃或触发整页重渲染。
+- 空态不再把「当前仓库没有」误报成「目录下没有 .sln 文件」：区分「没有匹配结果」（一键清空筛选）与「所有仓库都没扫到 .sln」（重新扫描）；接口失败显示明确原因，旧服务缺少接口时提示重新运行 `start.cmd`。
 - 点击文件立即显示 Diff。
 - 状态徽标使用颜色区分：新增/未跟踪绿色，删除红色，修改/重命名蓝色。
 
@@ -86,10 +89,12 @@
 
 - `collectChangedEntries()`
 - `renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`
-- `updateFileViewToggle()`（同时切换 `solution-mode` 类）、`getVisibleEntries()`（解决方案模式直接返回扫描结果，普通模式按状态筛选）
-- `renderSolutionView()`（独立的解决方案视图渲染）、`toSolutionEntry()`、`fetchSolutions()`、`resolveFileEntry()`（点击 `.sln` 时从扫描结果解析，不依赖 Git 状态）
-- `isSolutionFile()`、`openInVisualStudio()`（`elements.fileGroups` 的 `dblclick` 监听 + 预览区 `openSolution` 动作）
-- 后端：`directories.listSolutions()`（递归扫描仓库目录、跳过 `.git`、返回相对路径）、`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）、路由 `GET /api/repositories/:id/solutions`
+- `updateFileViewToggle()`（同时切换 `solution-mode` 类）、`getVisibleEntries()`（解决方案模式返回汇总结果，普通模式按状态筛选）
+- `fetchSolutions({ force })`（并发 4 个扫所有仓库、按 `state.solutionCache` 缓存）、`buildSolutionCatalog()`、`refreshSolutionCurrentFlag()`、`getVisibleSolutions()`、`makeSolutionKey()` / `findSolutionByKey()`
+- `renderSolutionView()`（独立视图）、`renderSolutionList()`、`renderSolutionPreview()`（只重建右侧预览）、`updateSolutionToolbar()`、`toSolutionEntry()`、`resolveFileEntry()`
+- `selectSolutionItem()`（增量选中）、`requestOpenSolution()`（双击双通道 + 去重）、`isSolutionFile()`、`openInVisualStudio(target)`（独立发动作请求并自行反馈，支持带 `repositoryId` 的跨仓库条目；`dblclick` 监听 + 预览区 `openSolution` 动作）
+- DOM：`#solutionToolbar`、`#solutionSearchInput`、`[data-solution-scope]`、`[data-solution-rescan]`、`[data-solution-select]`、`[data-solution-key]`、`[data-solution-clear-filters]`
+- 后端未改动：`directories.listSolutions()`（递归扫描仓库目录、跳过 `.git`、返回相对路径）、`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）、路由 `GET /api/repositories/:id/solutions`
 - `fileStatus()`
 - `getPreviewKey()`、`loadFilePreview()`、`renderDiff()`
 - CSS：`.file-status.added`、`.deleted`、`.modified`、`.conflict`、`solution-filter-toggle`、`.solution-file`、`.solution-open-button`
@@ -172,21 +177,21 @@
 - DOM：`#contextHistorySection`、`#branchContextSection`、
   `#contextCommitHistory`、`[data-context-view]`
 
-## 提交历史右键菜单（参考 TortoiseGit）
+## 分支标签右键菜单（参考 TortoiseGit）
 
 **用户行为**
 
-- 右键提交历史里的分支/标签徽标：菜单首项高亮「切换到 "xxx"」，可快速切到该引用。远端分支会在本地创建同名跟踪分支，`origin/HEAD` 解析为它指向的远端分支，标签进入分离 HEAD；当前检出分支该项禁用。
+- 只有右键提交历史里的分支/标签徽标才会弹出菜单；右键历史行的其它位置保持浏览器默认行为，不再显示提交级菜单（用户主要需要的是操作分支）。
+- 菜单首项高亮「切换到 "xxx"」，可快速切到该引用。远端分支会在本地创建同名跟踪分支，`origin/HEAD` 解析为它指向的远端分支，标签进入分离 HEAD；当前检出分支该项禁用。
 - 同一菜单还支持：合并到当前分支、在此版本创建分支/标签、检出此提交、推送引用、删除引用、显示此提交的改动、与工作区/上一版本比较、复制引用名与提交哈希、浏览仓库、用 TortoiseGit 打开日志。
-- 右键提交历史行（非徽标处）：显示此提交的改动 / 与工作区比较 / 与上一版本比较、合并此提交、重置当前分支（可选 soft/mixed/hard）、变基到此提交、检出此提交、创建分支/标签、遴选、还原、复制哈希/说明/完整信息、浏览仓库、打开 TortoiseGit。
-- 合并、重置、变基、遴选、还原、推送、删除引用等会改写仓库或远端的操作都有确认弹窗；重置可显式选择模式，危险项使用红色样式。
+- 合并、检出、推送、删除引用等会改写仓库或远端的操作都有确认弹窗，危险项使用红色样式。
 - 菜单较长时可内部滚动，页面滚动 / 点击别处 / Escape / 窗口缩放仍会关闭菜单。
 
 **实现位置**
 
-- 前端：`showContextMenu()`（三类菜单共用渲染与位置钳制）、`openRepoMenu()`、`openRefMenu()`、`openCommitMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`openCreateRefAtModal()`、`createHistoryRefFromModal()`、`openCommitChanges()`、`copyText()`、`hideContextMenu()`；上下文存 `state.menuContext`。
+- 前端：`showContextMenu()`（仓库行与徽标菜单共用渲染与位置钳制）、`openRepoMenu()`、`openRefMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`openCreateRefAtModal()`、`createHistoryRefFromModal()`、`openCommitChanges()`、`copyText()`、`hideContextMenu()`；上下文存 `state.menuContext`。
 - DOM：历史行 `data-commit-hash`，徽标 `data-ref` / `data-ref-full` / `data-ref-kind`；`#contextMenu` 的 `.context-menu-wide` 变体与 `[data-menu-action]`。
-- 后端：`GET /api/repositories/:id/commit?hash=&compare=`（`getCommitChanges()`）；`src/git-actions.js` 的 `checkoutRef`、`checkoutCommit`、`createBranchAt`、`createTagAt`、`cherryPick`、`revertCommit`、`resetToCommit`、`rebaseOnto`、`pushRef`、`deleteRef` 及引用/哈希校验。
+- 后端：`GET /api/repositories/:id/commit?hash=&compare=`（`getCommitChanges()`）；`src/git-actions.js` 的 `checkoutRef`、`checkoutCommit`、`createBranchAt`、`createTagAt`、`pushRef`、`deleteRef` 及引用/哈希校验。
 
 ## Stash
 
@@ -295,7 +300,7 @@
 
 - `openRepoMenu()`、`showContextMenu()`、`handleContextMenuClick()`、`handleRepoMenuAction()`
 - DOM：`#contextMenu`
-- 提交历史的两套菜单见上文「提交历史右键菜单」。
+- 提交历史分支标签的右键菜单见上文「分支标签右键菜单」。
 
 ## 文件状态颜色
 

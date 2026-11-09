@@ -464,6 +464,25 @@
                       <button type="button" data-file-filter="staged">已暂存</button>
                       <button type="button" data-file-filter="untracked">未跟踪</button>
                     </div>
+                    <div class="solution-toolbar" id="solutionToolbar" hidden>
+                      <input
+                        id="solutionSearchInput"
+                        type="search"
+                        placeholder="搜索解决方案或仓库…"
+                        autocomplete="off"
+                        spellcheck="false"
+                        aria-label="搜索解决方案"
+                      />
+                      <div class="solution-toolbar-actions">
+                        <button type="button" data-solution-scope="all">全部仓库</button>
+                        <button type="button" data-solution-scope="current">当前仓库</button>
+                        <button
+                          type="button"
+                          data-solution-rescan
+                          title="重新扫描所有仓库的 .sln 文件"
+                        >重新扫描</button>
+                      </div>
+                    </div>
                     <div class="batch-selection-bar">
                       <button type="button" data-file-select-all>全选当前</button>
                       <span id="batchSelectionCount">已选 0</span>

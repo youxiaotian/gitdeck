@@ -21,9 +21,10 @@ node --test
 - 目录选择器的 passive 滚动监听、无重复 DOM 写入、重绘隔离，以及「无后台自动抓取 / 无前端定时刷新」的防回归断言；
 - 多选批量添加：只在添加仓库启用、切换目录不清空选择集、关闭时清空、增量更新不重建列表、批量上限与失败项保留；
 - 扫描结果的全选 / 反选入口、仓库名拼接展示、悬停完整路径、0 选中禁用添加按钮、勾选增量更新不重建结果列表；
-- 提交历史右键菜单：历史行 `data-commit-hash` 与徽标 `data-ref*` 数据通道、三类菜单共用渲染器与按上下文分发、`switch-ref` 主操作走 `checkoutRef`、远端跟踪分支与 `origin/HEAD` 解析、9 个引用/提交动作的登记、重置模式选择、剪贴板回退、`GET commit` 三种比较模式与根提交回退、宽菜单样式与「菜单内部滚动不误关」守卫。
+- `.sln` 解决方案模式：并发汇总所有仓库并按仓库缓存、范围/关键字过滤、搜索与范围工具条、重新扫描、空态可恢复、双击按条目所属 `repositoryId` 打开、`GET solutions` 与 `openVisualStudio` 的后端契约，以及「只扫当前仓库」旧实现的防回归断言；单击选中不重建列表 DOM（`selectSolutionItem` 内不得出现 `renderChanges` / `fileGroups.innerHTML`）、双击双通道与去重、打开不走 `performRepoAction` busy 队列、即时反馈与失败提示；
+- 提交历史分支标签右键菜单：历史行 `data-commit-hash` 与徽标 `data-ref*` 数据通道、两类菜单共用渲染器与按上下文分发、只有命中徽标才拦截右键（不存在 `openCommitMenu` / `type: "commit"`）、`switch-ref` 主操作走 `checkoutRef`、远端跟踪分支与 `origin/HEAD` 解析、引用级动作登记及提交级动作（`cherryPick` 等）已移除、剪贴板回退、`GET commit` 三种比较模式与根提交回退、宽菜单样式与「菜单内部滚动不误关」守卫。
 
-交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表；右键徽标/提交行 → 菜单项、确认弹窗、差异弹窗）。探针脚本和 Chrome profile 放在 `.workbuddy/scratch/`，验证完用 `node tools/clean-scratch.js` 清理，不入库。
+交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表；右键徽标 → 菜单项、确认弹窗、差异弹窗；右键历史行非徽标处 → 不弹自定义菜单）。探针脚本和 Chrome profile 放在 `.workbuddy/scratch/`，验证完用 `node tools/clean-scratch.js` 清理，不入库。
 
 ### `tests/desktop.test.js`
 
