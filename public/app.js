@@ -73,6 +73,10 @@
     directoryMultiple: false,
     directorySelected: new Set(),
     menuRepositoryId: null,
+    // 右键菜单上下文：仓库行（repo）/ 历史分支标签（ref）/ 历史提交行（commit）。
+    menuContext: null,
+    historyRefDraft: null,
+    commitPatchRequest: 0,
     detailRequest: 0,
     previousFocus: null,
     version: "1.0.0"
@@ -185,7 +189,17 @@
     openExplorer: "已打开目录",
     openTerminal: "已打开终端",
     openTortoiseGit: "已打开 TortoiseGit",
-    openVisualStudio: "已用 Visual Studio 打开"
+    openVisualStudio: "已用 Visual Studio 打开",
+    checkoutRef: "引用切换完成",
+    checkoutCommit: "已切换到此提交",
+    createBranchAt: "分支创建完成",
+    createTagAt: "标签创建完成",
+    cherryPick: "遴选完成",
+    revertCommit: "还原完成",
+    resetToCommit: "重置完成",
+    rebaseOnto: "变基完成",
+    pushRef: "引用推送完成",
+    deleteRef: "引用已删除"
   };
 
   const actionFailureLabels = {
@@ -196,6 +210,16 @@
     commit: "提交失败",
     commitSelected: "提交失败",
     checkoutBranch: "分支切换失败",
+    checkoutRef: "引用切换失败",
+    checkoutCommit: "切换失败",
+    createBranchAt: "分支创建失败",
+    createTagAt: "标签创建失败",
+    cherryPick: "遴选失败",
+    revertCommit: "还原失败",
+    resetToCommit: "重置失败",
+    rebaseOnto: "变基失败",
+    pushRef: "引用推送失败",
+    deleteRef: "引用删除失败",
     mergeBranch: "分支合并失败",
     stashSave: "Stash 保存失败",
     stashPop: "Stash 恢复失败"
@@ -459,11 +483,17 @@
     window.addEventListener("resize", hideContextMenu);
     window.addEventListener(
       "scroll",
-      () => {
+      (event) => {
         // 菜单本来就隐藏时直接返回：滚动事件极高频，不能每帧都写 DOM。
-        if (!elements.contextMenu.hidden) {
-          hideContextMenu();
+        // 长菜单自身会出现内部滚动，不能把它当成「页面滚动」而关掉菜单。
+        if (
+          elements.contextMenu.hidden ||
+          (event.target instanceof Node &&
+            elements.contextMenu.contains(event.target))
+        ) {
+          return;
         }
+        hideContextMenu();
       },
       { capture: true, passive: true }
     );
@@ -2398,7 +2428,9 @@
       .map((row, index) => {
         const graph = historyGraphSvg(lanes[index], maxLanes);
         return `
-          <article class="context-history-row" style="--history-graph-width:${graphWidth}px">
+          <article class="context-history-row" data-commit-hash="${escapeHtml(
+            row.hash
+          )}" style="--history-graph-width:${graphWidth}px">
             <span class="context-history-graph">${graph}</span>
             <div class="context-history-content">
               <div class="context-history-subject">
@@ -2591,25 +2623,39 @@
       .map((decoration) => {
         let label = decoration;
         let className = "";
+        // ref 是交给后端的规范化引用名；ref-full 保留 %D 原文用于复制/展示。
+        let ref = decoration;
+        let kind = "local";
         if (decoration.startsWith("HEAD -> ")) {
           label = decoration.slice(8);
+          ref = label;
           className = "head";
+          kind = "head";
         } else if (decoration === "HEAD") {
           className = "head";
+          kind = "head";
         } else if (decoration.startsWith("tag: ")) {
           label = decoration.slice(5);
+          ref = label;
           className = "tag";
+          kind = "tag";
         } else {
           const remote = [...remoteNames].find((name) =>
             decoration.startsWith(`${name}/`)
           );
           if (remote) {
             className = "remote";
+            kind =
+              decoration === `${remote}/HEAD` ? "remote-head" : "remote";
           }
         }
-        return `<span class="context-history-decoration ${className}" title="${escapeHtml(
+        return `<span class="context-history-decoration ${className}" data-ref="${escapeHtml(
+          ref
+        )}" data-ref-full="${escapeHtml(
           decoration
-        )}">${escapeHtml(label)}</span>`;
+        )}" data-ref-kind="${kind}" title="${escapeHtml(
+          decoration
+        )}（右键查看操作）">${escapeHtml(label)}</span>`;
       })
       .join("");
   }
@@ -3376,15 +3422,30 @@
   }
 
   function handleContextMenu(event) {
+    // 右键落在菜单以外时先关掉上一次的菜单，避免两个上下文叠加。
+    hideContextMenu();
     const repositoryRow = event.target.closest("[data-open-repo]");
-    if (!repositoryRow) {
+    if (repositoryRow) {
+      event.preventDefault();
+      openRepoMenu(repositoryRow.dataset.openRepo, {
+        left: event.clientX,
+        top: event.clientY
+      });
+      return;
+    }
+    const historyRow = event.target.closest(".context-history-row");
+    if (!historyRow || !state.selectedId) {
       return;
     }
     event.preventDefault();
-    openRepoMenu(repositoryRow.dataset.openRepo, {
-      left: event.clientX,
-      top: event.clientY
-    });
+    const row = historyRowContext(historyRow);
+    const position = { left: event.clientX, top: event.clientY };
+    const decoration = event.target.closest(".context-history-decoration");
+    if (decoration) {
+      openRefMenu(row, decoration, position);
+    } else {
+      openCommitMenu(row, position);
+    }
   }
 
   function handleKeydown(event) {
@@ -4209,12 +4270,63 @@
     }
   }
 
+  // 仓库行 / 历史分支标签 / 历史提交行共用同一个 #contextMenu。
+  // state.menuContext 保存当前菜单的上下文，动作分发据此区分场景。
+  function showContextMenu({ label, items, position, context }) {
+    state.menuContext = context;
+    state.menuRepositoryId = context.type === "repo" ? context.repoId : null;
+    elements.contextMenu.classList.toggle(
+      "context-menu-wide",
+      context.type !== "repo"
+    );
+    elements.contextMenu.innerHTML = `
+      <div class="context-menu-label" title="${escapeHtml(
+        label
+      )}">${escapeHtml(label)}</div>
+      ${items
+        .map((item) => {
+          if (item.separator) {
+            return '<div class="context-menu-separator"></div>';
+          }
+          const classes = [
+            item.primary ? "primary" : "",
+            item.danger ? "danger" : ""
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return `<button type="button" data-menu-action="${escapeHtml(
+            item.action
+          )}"${classes ? ` class="${classes}"` : ""}${
+            item.disabled ? " disabled" : ""
+          }>${icon(item.icon || "chevron-right")}${escapeHtml(
+            item.label
+          )}</button>`;
+        })
+        .join("")}
+    `;
+    elements.contextMenu.hidden = false;
+
+    // 用实测宽高钳制位置：宽菜单比仓库菜单长得多，不能再用固定 190px。
+    const width = elements.contextMenu.offsetWidth;
+    const height = elements.contextMenu.offsetHeight;
+    const left = Math.min(
+      position?.left ?? 16,
+      window.innerWidth - width - 8
+    );
+    const top = Math.min(
+      (position?.top ?? 16) + 4,
+      window.innerHeight - height - 8
+    );
+    elements.contextMenu.style.left = `${Math.max(8, left)}px`;
+    elements.contextMenu.style.top = `${Math.max(8, top)}px`;
+    elements.contextMenu.querySelector("button:not([disabled])")?.focus();
+  }
+
   function openRepoMenu(repoId, anchor) {
     const repository = state.repositories.find((item) => item.id === repoId);
     if (!repository) {
       return;
     }
-    state.menuRepositoryId = repoId;
     const rect =
       anchor instanceof Element
         ? anchor.getBoundingClientRect()
@@ -4222,31 +4334,30 @@
             left: anchor?.left || 16,
             top: anchor?.top || 16
           };
-
-    elements.contextMenu.innerHTML = `
-      <div class="context-menu-label">${escapeHtml(repository.name)}</div>
-      <button type="button" data-menu-action="select">${icon("folder-open")}打开仓库</button>
-      <button type="button" data-menu-action="fetch">${icon("download")}抓取远端</button>
-      <button type="button" data-menu-action="pull">${icon("arrow-down")}拉取当前分支</button>
-      <button type="button" data-menu-action="push">${icon("upload")}推送当前分支</button>
-      <div class="context-menu-separator"></div>
-      ${
-        state.workspaces.length > 1
-          ? `<button type="button" data-menu-action="move">${icon("layers")}加入其他工作区</button>
-             <div class="context-menu-separator"></div>`
-          : ""
-      }
-      <button type="button" class="danger" data-menu-action="remove">${icon("trash")}从工作区移出</button>
-    `;
-    elements.contextMenu.hidden = false;
-
-    const width = 190;
-    const height = elements.contextMenu.offsetHeight;
-    const left = Math.min(rect.left, window.innerWidth - width - 8);
-    const top = Math.min(rect.top + 4, window.innerHeight - height - 8);
-    elements.contextMenu.style.left = `${Math.max(8, left)}px`;
-    elements.contextMenu.style.top = `${Math.max(8, top)}px`;
-    elements.contextMenu.querySelector("button")?.focus();
+    showContextMenu({
+      label: repository.name,
+      position: { left: rect.left, top: rect.top },
+      context: { type: "repo", repoId },
+      items: [
+        { action: "select", label: "打开仓库", icon: "folder-open" },
+        { action: "fetch", label: "抓取远端", icon: "download" },
+        { action: "pull", label: "拉取当前分支", icon: "arrow-down" },
+        { action: "push", label: "推送当前分支", icon: "upload" },
+        { separator: true },
+        ...(state.workspaces.length > 1
+          ? [
+              { action: "move", label: "加入其他工作区", icon: "layers" },
+              { separator: true }
+            ]
+          : []),
+        {
+          action: "remove",
+          label: "从工作区移出",
+          icon: "trash",
+          danger: true
+        }
+      ]
+    });
   }
 
   function hideContextMenu() {
@@ -4255,7 +4366,15 @@
     if (!elements.contextMenu.hidden) {
       elements.contextMenu.hidden = true;
     }
-    state.menuRepositoryId = null;
+    if (state.menuContext) {
+      state.menuContext = null;
+    }
+    if (state.menuRepositoryId) {
+      state.menuRepositoryId = null;
+    }
+    if (elements.contextMenu.classList.contains("context-menu-wide")) {
+      elements.contextMenu.classList.remove("context-menu-wide");
+    }
   }
 
   function handleContextMenuClick(event) {
@@ -4263,12 +4382,20 @@
     if (!button) {
       return;
     }
-    const repositoryId = state.menuRepositoryId;
     const action = button.dataset.menuAction;
+    const context = state.menuContext;
     hideContextMenu();
-    if (!repositoryId) {
+    if (!context) {
       return;
     }
+    if (context.type === "repo") {
+      handleRepoMenuAction(action, context.repoId);
+      return;
+    }
+    handleHistoryMenuAction(action, context).catch(() => {});
+  }
+
+  function handleRepoMenuAction(action, repositoryId) {
     if (action === "select") {
       selectRepository(repositoryId);
       return;
@@ -4296,6 +4423,486 @@
     } else {
       performRepoAction(repositoryId, action).catch(() => {});
     }
+  }
+
+  // ---- 提交历史右键菜单 ----
+  // 参考 TortoiseGit 日志窗口的上下文菜单：分支标签侧重「快速切换到该分支」，
+  // 提交行侧重「比较 / 合并 / 重置 / 建分支标签 / 遴选 / 还原 / 复制」。
+
+  function historyRowContext(historyRow) {
+    const hash = historyRow.dataset.commitHash || "";
+    const row = (state.contextHistory?.rows || []).find(
+      (item) => item.hash === hash
+    );
+    return {
+      repoId: state.selectedId,
+      hash,
+      shortHash: row?.shortHash || hash.slice(0, 7),
+      subject: row?.subject || "",
+      author: row?.author || "",
+      date: row?.date || ""
+    };
+  }
+
+  function openRefMenu(row, decoration, position) {
+    const ref = decoration.dataset.ref || "";
+    const refFull = decoration.dataset.refFull || ref;
+    const refKind = decoration.dataset.refKind || "local";
+    const context = { ...row, type: "ref", ref, refFull, refKind };
+    const kindLabel =
+      {
+        head: "当前检出",
+        local: "本地分支",
+        remote: "远端分支",
+        "remote-head": "远端 HEAD",
+        tag: "标签"
+      }[refKind] || "引用";
+    const isCurrent = refKind === "head";
+    const isRemoteHead = refKind === "remote-head";
+
+    showContextMenu({
+      label: `${kindLabel} · ${ref}`,
+      position,
+      context,
+      items: [
+        {
+          action: "switch-ref",
+          label: isCurrent ? `已在 ${ref}` : `切换到 "${ref}"`,
+          icon: "git-branch",
+          primary: true,
+          disabled: isCurrent
+        },
+        { separator: true },
+        {
+          action: "merge-ref",
+          label: "合并到当前分支…",
+          icon: "corner-down-left",
+          disabled: isCurrent
+        },
+        { action: "create-branch-at", label: "在此版本创建分支…", icon: "plus" },
+        { action: "create-tag-at", label: "在此版本创建标签…", icon: "plus" },
+        {
+          action: "checkout-commit",
+          label: "检出此提交（分离 HEAD）…",
+          icon: "commit"
+        },
+        { separator: true },
+        {
+          action: "push-ref",
+          label: `推送 "${ref}"…`,
+          icon: "upload",
+          disabled: isRemoteHead
+        },
+        {
+          action: "delete-ref",
+          label: `删除引用 "${ref}"…`,
+          icon: "trash",
+          danger: true,
+          disabled: isCurrent || isRemoteHead
+        },
+        { separator: true },
+        { action: "commit-patch", label: "显示此提交的改动", icon: "eye" },
+        {
+          action: "commit-compare-worktree",
+          label: "与工作区比较",
+          icon: "list"
+        },
+        {
+          action: "commit-compare-previous",
+          label: "与上一版本比较",
+          icon: "history"
+        },
+        { separator: true },
+        { action: "copy-ref", label: "复制引用名称", icon: "list" },
+        { action: "copy-hash", label: "复制提交哈希", icon: "commit" },
+        { separator: true },
+        { action: "open-explorer", label: "浏览仓库", icon: "folder-open" },
+        {
+          action: "open-tgit",
+          label: "用 TortoiseGit 查看日志",
+          icon: "external-link"
+        }
+      ]
+    });
+  }
+
+  function openCommitMenu(row, position) {
+    showContextMenu({
+      label: `提交 ${row.shortHash} · ${row.subject}`,
+      position,
+      context: { ...row, type: "commit" },
+      items: [
+        {
+          action: "commit-patch",
+          label: "显示此提交的改动",
+          icon: "eye",
+          primary: true
+        },
+        {
+          action: "commit-compare-worktree",
+          label: "与工作区比较",
+          icon: "list"
+        },
+        {
+          action: "commit-compare-previous",
+          label: "与上一版本比较",
+          icon: "history"
+        },
+        { separator: true },
+        {
+          action: "merge-commit",
+          label: "合并此提交到当前分支…",
+          icon: "corner-down-left"
+        },
+        {
+          action: "reset-to-commit",
+          label: "重置当前分支到此提交…",
+          icon: "undo"
+        },
+        {
+          action: "rebase-onto",
+          label: "变基当前分支到此提交…",
+          icon: "git-branch"
+        },
+        { separator: true },
+        { action: "checkout-commit", label: "切换到此提交…", icon: "commit" },
+        { action: "create-branch-at", label: "在此版本创建分支…", icon: "plus" },
+        { action: "create-tag-at", label: "在此版本创建标签…", icon: "plus" },
+        { action: "cherry-pick", label: "遴选此提交…", icon: "check" },
+        {
+          action: "revert-commit",
+          label: "还原此提交引入的更改…",
+          icon: "undo"
+        },
+        { separator: true },
+        { action: "copy-hash", label: "复制提交哈希", icon: "commit" },
+        { action: "copy-subject", label: "复制提交说明", icon: "list" },
+        {
+          action: "copy-commit-info",
+          label: "复制提交完整信息",
+          icon: "list"
+        },
+        { separator: true },
+        { action: "open-explorer", label: "浏览仓库", icon: "folder-open" },
+        {
+          action: "open-tgit",
+          label: "用 TortoiseGit 查看日志",
+          icon: "external-link"
+        }
+      ]
+    });
+  }
+
+  async function handleHistoryMenuAction(action, context) {
+    const repoId = context.repoId;
+    const hash = context.hash;
+    const shortHash = escapeHtml(context.shortHash);
+
+    if (action === "commit-patch") {
+      await openCommitChanges(context, "patch", "此提交的改动");
+      return;
+    }
+    if (action === "commit-compare-worktree") {
+      await openCommitChanges(context, "worktree", "与工作区比较");
+      return;
+    }
+    if (action === "commit-compare-previous") {
+      await openCommitChanges(context, "previous", "与上一版本比较");
+      return;
+    }
+    if (action === "copy-ref") {
+      await copyText(context.refFull || context.ref, "引用名称已复制");
+      return;
+    }
+    if (action === "copy-hash") {
+      await copyText(hash, "提交哈希已复制");
+      return;
+    }
+    if (action === "copy-subject") {
+      await copyText(context.subject, "提交说明已复制");
+      return;
+    }
+    if (action === "copy-commit-info") {
+      await copyText(
+        [hash, context.author, context.date, context.subject]
+          .filter(Boolean)
+          .join("\n"),
+        "提交信息已复制"
+      );
+      return;
+    }
+    if (action === "open-explorer") {
+      await performRepoAction(repoId, "openExplorer");
+      return;
+    }
+    if (action === "open-tgit") {
+      await performRepoAction(repoId, "openTortoiseGit");
+      return;
+    }
+    if (action === "create-branch-at" || action === "create-tag-at") {
+      openCreateRefAtModal(context, action);
+      return;
+    }
+    if (action === "switch-ref") {
+      showConfirm({
+        eyebrow: "切换引用",
+        title: "切换到这个引用？",
+        message: `即将切换到 <strong>${escapeHtml(
+          context.ref
+        )}</strong>。远端分支会在本地创建同名跟踪分支；标签会进入分离 HEAD 状态。未提交改动可能阻止切换。`,
+        confirmLabel: "切换",
+        onConfirm: () =>
+          performRepoAction(repoId, "checkoutRef", { ref: context.ref })
+      });
+      return;
+    }
+    if (action === "merge-ref") {
+      showConfirm({
+        eyebrow: "合并引用",
+        title: "合并到当前分支？",
+        message: `即将把 <strong>${escapeHtml(
+          context.ref
+        )}</strong> 合并到当前分支。冲突会留在工作区等待处理。`,
+        confirmLabel: "合并",
+        onConfirm: () =>
+          performRepoAction(repoId, "mergeBranch", { name: context.ref })
+      });
+      return;
+    }
+    if (action === "merge-commit") {
+      showConfirm({
+        eyebrow: "合并提交",
+        title: "合并此提交到当前分支？",
+        message: `即将把提交 <strong>${shortHash}</strong> 合并到当前分支。冲突会留在工作区等待处理。`,
+        confirmLabel: "合并",
+        onConfirm: () =>
+          performRepoAction(repoId, "mergeBranch", { name: hash })
+      });
+      return;
+    }
+    if (action === "checkout-commit") {
+      showConfirm({
+        eyebrow: "检出提交",
+        title: "切换到这个提交？",
+        message: `即将以分离 HEAD 状态检出 <strong>${shortHash}</strong>。后续提交不会属于任何分支，需要时请先创建分支。`,
+        confirmLabel: "检出",
+        onConfirm: () =>
+          performRepoAction(repoId, "checkoutCommit", { hash })
+      });
+      return;
+    }
+    if (action === "reset-to-commit") {
+      showConfirm({
+        eyebrow: "重置分支",
+        title: "重置当前分支到此提交？",
+        message: `当前分支的 HEAD 会移动到 <strong>${shortHash}</strong>。<strong>hard</strong> 会丢弃工作区与暂存区的未提交改动。`,
+        danger: true,
+        confirmLabel: "重置",
+        bodyExtra: `
+          <div class="form-field">
+            <label for="historyResetMode">重置模式</label>
+            <select id="historyResetMode">
+              <option value="mixed">mixed：保留工作区，取消暂存</option>
+              <option value="soft">soft：保留工作区和暂存</option>
+              <option value="hard">hard：丢弃工作区与暂存的改动</option>
+            </select>
+          </div>
+        `,
+        onConfirm: () =>
+          performRepoAction(repoId, "resetToCommit", {
+            hash,
+            mode: document.getElementById("historyResetMode")?.value || "mixed"
+          })
+      });
+      return;
+    }
+    if (action === "rebase-onto") {
+      showConfirm({
+        eyebrow: "变基",
+        title: "变基当前分支到此提交？",
+        message: `当前分支在 <strong>${shortHash}</strong> 之后的提交会被重新应用，提交哈希将改变。已推送的分支变基前请确认没有协作者在用。`,
+        danger: true,
+        confirmLabel: "变基",
+        onConfirm: () => performRepoAction(repoId, "rebaseOnto", { hash })
+      });
+      return;
+    }
+    if (action === "cherry-pick") {
+      showConfirm({
+        eyebrow: "遴选提交",
+        title: "遴选此提交？",
+        message: `会把 <strong>${shortHash}</strong> 的改动应用为一个新提交。出现冲突时需要手动解决。`,
+        confirmLabel: "遴选",
+        onConfirm: () => performRepoAction(repoId, "cherryPick", { hash })
+      });
+      return;
+    }
+    if (action === "revert-commit") {
+      showConfirm({
+        eyebrow: "还原提交",
+        title: "还原此提交引入的更改？",
+        message: `会创建一个反向提交来撤销 <strong>${shortHash}</strong>，不会改写已有历史。`,
+        confirmLabel: "还原",
+        onConfirm: () => performRepoAction(repoId, "revertCommit", { hash })
+      });
+      return;
+    }
+    if (action === "push-ref") {
+      showConfirm({
+        eyebrow: "推送引用",
+        title: "推送这个引用？",
+        message: `即将把 <strong>${escapeHtml(
+          context.ref
+        )}</strong> 对应的本地引用推送到远端。这是写入远端的操作。`,
+        confirmLabel: "推送",
+        onConfirm: () =>
+          performRepoAction(repoId, "pushRef", { ref: context.ref })
+      });
+      return;
+    }
+    if (action === "delete-ref") {
+      showConfirm({
+        eyebrow: "删除引用",
+        title: "删除这个引用？",
+        message: `即将删除 <strong>${escapeHtml(
+          context.ref
+        )}</strong>。远端分支会通过 <code>git push --delete</code> 从远端移除，本地分支用 <code>git branch -d</code> 删除。提交对象本身不会被立刻销毁。`,
+        danger: true,
+        confirmLabel: "删除引用",
+        onConfirm: () =>
+          performRepoAction(repoId, "deleteRef", { ref: context.ref })
+      });
+      return;
+    }
+  }
+
+  async function copyText(text, successTitle) {
+    const value = String(text ?? "");
+    if (!value) {
+      showToast("没有可复制的内容", "当前引用没有可用文本。", "warning");
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = value;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        const copied = document.execCommand("copy");
+        area.remove();
+        if (!copied) {
+          throw new Error("浏览器拒绝了复制请求。");
+        }
+      }
+      showToast(
+        successTitle,
+        value.length > 90 ? `${value.slice(0, 90)}…` : value,
+        "success"
+      );
+    } catch (error) {
+      showToast("复制失败", error.message, "error");
+    }
+  }
+
+  async function openCommitChanges(context, compare, title) {
+    const requestId = ++state.commitPatchRequest;
+    openModal({
+      eyebrow: "提交差异",
+      title: `${title} · ${context.shortHash}`,
+      wide: true,
+      body: `<p class="form-help">正在读取 ${escapeHtml(
+        context.shortHash
+      )} 的差异…</p>`,
+      footer: `<button class="button button-quiet" type="button" data-action="close-modal">关闭</button>`
+    });
+    try {
+      const result = await api(
+        `/api/repositories/${context.repoId}/commit?hash=${encodeURIComponent(
+          context.hash
+        )}&compare=${compare}`
+      );
+      if (
+        requestId !== state.commitPatchRequest ||
+        elements.modalBackdrop.hidden
+      ) {
+        return;
+      }
+      elements.modalBody.innerHTML = `<pre class="commit-patch">${escapeHtml(
+        result.text
+      )}</pre>`;
+    } catch (error) {
+      if (
+        requestId !== state.commitPatchRequest ||
+        elements.modalBackdrop.hidden
+      ) {
+        return;
+      }
+      elements.modalBody.innerHTML = `<p class="form-help">读取失败：${escapeHtml(
+        error.message
+      )}</p>`;
+    }
+  }
+
+  function openCreateRefAtModal(context, mode) {
+    const isBranch = mode === "create-branch-at";
+    state.historyRefDraft = { context, mode };
+    openModal({
+      eyebrow: "提交历史",
+      title: isBranch ? "在此版本创建分支" : "在此版本创建标签",
+      body: `
+        <div class="form-field">
+          <label for="historyRefName">${isBranch ? "分支名" : "标签名"}</label>
+          <input id="historyRefName" type="text" spellcheck="false" autocomplete="off" placeholder="${
+            isBranch ? "例如 feature/from-history" : "例如 v1.0.0"
+          }" />
+          <p class="form-help">基于 <strong>${escapeHtml(
+            context.shortHash
+          )}</strong> ${escapeHtml(context.subject)} 创建。</p>
+        </div>
+        ${
+          isBranch
+            ? `<label class="form-check"><input id="historySwitchToRef" type="checkbox" checked /> 创建后立即切换到新分支</label>`
+            : `<div class="form-field"><label for="historyTagMessage">附注说明（可选）</label><input id="historyTagMessage" type="text" placeholder="留空则创建轻量标签" /></div>`
+        }
+      `,
+      footer: `
+        <button class="button button-quiet" type="button" data-action="close-modal">取消</button>
+        <button class="button button-primary" type="button" data-modal-action="create-history-ref">${
+          isBranch ? "创建分支" : "创建标签"
+        }</button>
+      `
+    });
+    state.modalType = "history-ref";
+  }
+
+  async function createHistoryRefFromModal(button) {
+    const draft = state.historyRefDraft;
+    const name = document.getElementById("historyRefName")?.value.trim();
+    if (!draft || !name) {
+      showToast("请输入名称", "分支名或标签名不能为空。", "warning");
+      return;
+    }
+    const { context, mode } = draft;
+    const payload = { name, base: context.hash };
+    if (mode === "create-branch-at") {
+      payload.switchTo =
+        document.getElementById("historySwitchToRef")?.checked === true;
+    } else {
+      payload.message =
+        document.getElementById("historyTagMessage")?.value.trim() || "";
+    }
+    await withModalButton(button, async () => {
+      closeModal();
+      await performRepoAction(
+        context.repoId,
+        mode === "create-branch-at" ? "createBranchAt" : "createTagAt",
+        payload
+      );
+    });
   }
 
   function openAddRepositoryModal(prefill = "") {
@@ -4601,6 +5208,10 @@
     }
     if (action === "create-branch") {
       await createBranchFromModal(button);
+      return;
+    }
+    if (action === "create-history-ref") {
+      await createHistoryRefFromModal(button);
       return;
     }
     if (action === "save-stash") {
@@ -5250,6 +5861,9 @@
     elements.modalFooter.innerHTML = "";
     state.modalAction = null;
     state.modalType = "";
+    state.historyRefDraft = null;
+    // 让仍在读取的差异请求失效，避免它回填到之后打开的其他弹窗。
+    state.commitPatchRequest += 1;
     document.body.classList.remove("modal-open");
     if (state.previousFocus instanceof HTMLElement) {
       state.previousFocus.focus();

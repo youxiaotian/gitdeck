@@ -212,7 +212,7 @@
 
 ### `GET /api/repositories/:id/history?scope=all&limit=100`
 
-返回带 Git 图线的提交历史。
+返回结构化提交行（`git log --topo-order` + `%D` 装饰），图线由前端按 `hash` / `parents` 画成 SVG 泳道，接口不再返回 ASCII 图线。
 
 - `scope=all`：包含所有本地和远程跟踪分支，对应 `git log --all`。
 - `scope=current`：只包含当前分支。
@@ -222,24 +222,29 @@
 {
   "scope": "all",
   "branch": "main",
-  "maxGraphWidth": 22,
   "rows": [
     {
-      "type": "commit",
-      "graph": "* ",
-      "shortHash": "f410fb8597",
+      "hash": "50992969c2f1d6a3b0e7c8d9f0a1b2c3d4e5f6a7b",
+      "parents": ["84d0f1e9a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d"],
+      "shortHash": "5099296",
       "author": "youxiaojun",
       "date": "2026-11-02T17:23:10+08:00",
-      "decorations": "HEAD -> main, origin/main",
+      "decorations": "HEAD -> main, origin/main, tag: v1.0",
       "subject": "提交主题"
-    },
-    {
-      "type": "connector",
-      "graph": "|/"
     }
   ]
 }
 ```
+
+### `GET /api/repositories/:id/commit?hash=<哈希>&compare=patch`
+
+提交历史右键菜单的只读差异接口。`hash` 必须是 7–40 位十六进制且能解析为提交；`compare` 取 `patch` / `worktree` / `previous`，其余值按 `patch` 处理。
+
+- `patch`：`git show`（提交自身的改动，默认）。
+- `worktree`：`git diff <hash>`（提交与当前工作区比较）。
+- `previous`：`git diff <hash>^ <hash>`（与父提交比较）；根提交没有父提交时自动退回 `git show`。
+
+返回 `{ "hash", "compare", "text" }`，`text` 上限 512 KB，超出会截断。
 
 ### `GET /api/repositories/:id/solutions`
 
@@ -328,6 +333,18 @@
 | `openTerminal` | `{}` | 在仓库目录打开终端 |
 | `openTortoiseGit` | `{}` | 用当前仓库打开 TortoiseGit 日志界面 |
 | `openVisualStudio` | `{ "path" }` | 用 Visual Studio 打开指定 `.sln` 解决方案（`path` 必须相对仓库且经过 `validateRepositoryPath` 校验） |
+| `checkoutRef` | `{ "ref" }` | 提交历史右键菜单：切换分支标签。本地分支 `git switch`；远端分支建同名跟踪分支；标签进入分离 HEAD；`origin/HEAD` 先解析符号引用 |
+| `checkoutCommit` | `{ "hash" }` | `git switch --detach <hash>` |
+| `createBranchAt` | `{ "name", "base", "switchTo" }` | 在指定提交/引用处创建分支；`switchTo=true` 时创建后立即切换 |
+| `createTagAt` | `{ "name", "base", "message" }` | 在指定提交/引用处创建标签；有 `message` 时创建附注标签 |
+| `cherryPick` | `{ "hash" }` | `git cherry-pick <hash>` |
+| `revertCommit` | `{ "hash" }` | `git revert --no-edit <hash>` |
+| `resetToCommit` | `{ "hash", "mode" }` | `git reset --soft\|mixed\|hard <hash>`，`mode` 只接受三者之一 |
+| `rebaseOnto` | `{ "hash" }` | `git rebase <hash>` |
+| `pushRef` | `{ "ref" }` | 把引用对应的本地分支/标签推送到远端 |
+| `deleteRef` | `{ "ref", "force" }` | 删除本地分支、标签或远端分支（远端通过 `git push --delete`） |
+
+以上引用/提交级动作的 `ref`、`base`、`hash`、`name` 都先经过 `validateRefArgument()` / `validateRevision()` / `validateCommitHash()` 校验，参数作为独立 argv 传给 Git，不接受任意 Git 参数。
 
 响应结构：
 

@@ -29,7 +29,9 @@
 | 选中文件提交 | `src/git-actions.js` | `commitSelected()`、`normalizePaths()` |
 | 还原/删除文件 | `src/git-actions.js` | `discardPath()`、`discardPaths()` |
 | 分支切换/创建/合并 | `src/git-actions.js` | `checkoutBranch()`、`createBranch()`、`mergeBranch()`、`validateBranchName()` |
+| 历史右键：引用/提交级动作 | `src/git-actions.js` | `checkoutRef()`、`checkoutCommit()`、`createBranchAt()`、`createTagAt()`、`cherryPick()`、`revertCommit()`、`resetToCommit()`、`rebaseOnto()`、`pushRef()`、`deleteRef()`、`validateRefArgument()`、`validateRevision()`、`validateCommitHash()`、`refExists()`、`splitRemoteRef()` |
 | 分支删除（本地+远程） | `src/git-actions.js` | `deleteBranches()` |
+| 提交差异（只读） | `src/git-actions.js` | `getCommitChanges()`（`patch` / `worktree` / `previous`，根提交回退） |
 | Stash | `src/git-actions.js` | `stashPop()`（`stashSave` 在 switch 内联） |
 | Diff | `src/git-actions.js` | `getDiff()` |
 | 文件读/保存 | `src/git-actions.js` | `getFileContent()`、`saveFileContent()` |
@@ -73,7 +75,8 @@
 | 扫描结果全选 / 反选与已选清单 | `renderScanModalBody()`（含 `data-scan-name`）、`scanRepositoryInputs()`、`updateScanSelectionUI()`、`handleModalAction()` 的 `scan-select-all` / `scan-invert-selection` |
 | 事件分发 | `handleDocumentClick()`、`handleKeydown()` |
 | 分栏拖动 | `initializeResizers()`、`setResizerWidth()` |
-| 仓库右键菜单 | `openRepoMenu()`、`handleContextMenuClick()` |
+| 右键菜单（仓库行 / 历史徽标 / 历史行） | `showContextMenu()`、`openRepoMenu()`、`openRefMenu()`、`openCommitMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`hideContextMenu()`、`copyText()` |
+| 提交差异与引用表单弹窗 | `openCommitChanges()`、`openCreateRefAtModal()`、`createHistoryRefFromModal()` |
 | 批量仓库操作 | `toggleBulkRepository()`、`requestBulkAction()`、`executeBulkAction()`、`requestBulkRemoveRepositories()` |
 | 提示 | `showToast()` |
 | 工具 | `icon()`、`escapeHtml()`、`formatRelative()`、`formatDateTime()` |

@@ -118,6 +118,52 @@ async function runRepositoryAction(repository, body) {
       case "mergeBranch":
         output = await mergeBranch(repository.path, body.name);
         break;
+      // 提交历史右键菜单：引用与提交级动作。参数先经过 validateRevision /
+      // validateCommitHash 校验，避免把任意字符串当作 revision 或选项。
+      case "checkoutRef":
+        output = await checkoutRef(repository.path, body.ref);
+        break;
+      case "checkoutCommit":
+        output = await checkoutCommit(repository.path, body.hash);
+        break;
+      case "createBranchAt":
+        output = await createBranchAt(
+          repository.path,
+          body.name,
+          body.base,
+          body.switchTo === true
+        );
+        break;
+      case "createTagAt":
+        output = await createTagAt(
+          repository.path,
+          body.name,
+          body.base,
+          body.message
+        );
+        break;
+      case "cherryPick":
+        output = await cherryPick(repository.path, body.hash);
+        break;
+      case "revertCommit":
+        output = await revertCommit(repository.path, body.hash);
+        break;
+      case "resetToCommit":
+        output = await resetToCommit(repository.path, body.hash, body.mode);
+        break;
+      case "rebaseOnto":
+        output = await rebaseOnto(repository.path, body.hash);
+        break;
+      case "pushRef":
+        output = await pushRef(repository.path, body.ref);
+        break;
+      case "deleteRef":
+        output = await deleteRef(
+          repository.path,
+          body.ref,
+          body.force === true
+        );
+        break;
       case "stashSave":
         output = await gitAction(repository.path, [
           "stash",
@@ -482,6 +528,267 @@ async function validateBranchName(repositoryPath, branchName) {
   }
 }
 
+// ---- 提交历史右键菜单动作 ----
+// 所有引用/哈希都作为独立 argv 交给 git（spawn，无 shell）；字符集再收紧一层，
+// 防止 "-x"、空格、refspec 之类的输入被当成选项或路径。
+
+function validateRefArgument(value) {
+  const ref = String(value ?? "").trim();
+  if (!ref || ref.startsWith("-") || !/^[A-Za-z0-9._/\-]+$/.test(ref)) {
+    throw httpError(400, "引用名称无效。");
+  }
+  return ref;
+}
+
+async function validateRevision(repositoryPath, value) {
+  const revision = validateRefArgument(value);
+  await runGit(repositoryPath, [
+    "rev-parse",
+    "--verify",
+    `${revision}^{commit}`
+  ]);
+  return revision;
+}
+
+async function validateCommitHash(repositoryPath, value) {
+  const hash = String(value ?? "").trim();
+  if (!/^[0-9a-fA-F]{7,40}$/.test(hash)) {
+    throw httpError(400, "提交哈希无效。");
+  }
+  await validateRevision(repositoryPath, hash);
+  return hash;
+}
+
+async function refExists(repositoryPath, fullRef) {
+  try {
+    await runGit(repositoryPath, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      fullRef
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRemoteNames(repositoryPath) {
+  const remotes = await getRemotes(repositoryPath);
+  return [
+    ...new Set(
+      remotes
+        .filter((remote) => remote.type === "fetch")
+        .map((remote) => remote.name)
+    )
+  ];
+}
+
+function splitRemoteRef(ref, remoteNames) {
+  const remote = remoteNames.find((name) => ref.startsWith(`${name}/`));
+  if (!remote) {
+    return null;
+  }
+  return { remote, branch: ref.slice(remote.length + 1) };
+}
+
+// 右键分支标签的核心能力：本地分支直接 switch；远端分支先建同名跟踪分支；
+// 标签切换到分离 HEAD；origin/HEAD 先解析成它指向的远端分支。
+async function checkoutRef(repositoryPath, refInput) {
+  let ref = validateRefArgument(refInput);
+  const remoteNames = await fetchRemoteNames(repositoryPath);
+
+  if (ref.endsWith("/HEAD") && splitRemoteRef(ref, remoteNames)) {
+    const symbolic = await runGit(repositoryPath, [
+      "symbolic-ref",
+      "--short",
+      `refs/remotes/${ref}`
+    ]);
+    ref = validateRefArgument(symbolic.stdout.trim());
+  }
+
+  const target = splitRemoteRef(ref, remoteNames);
+  if (target) {
+    if (!target.branch || target.branch === "HEAD") {
+      throw httpError(400, "远端 HEAD 不能直接切换。");
+    }
+    await validateBranchName(repositoryPath, target.branch);
+    if (await refExists(repositoryPath, `refs/heads/${target.branch}`)) {
+      return gitAction(repositoryPath, ["switch", target.branch]);
+    }
+    try {
+      return await gitAction(repositoryPath, [
+        "switch",
+        "-c",
+        target.branch,
+        "--track",
+        ref
+      ]);
+    } catch {
+      // 只有 refs/remotes 而没有 remote 配置的仓库无法建立跟踪信息，
+      // 退化成普通起点创建，仍然切到该远端引用指向的提交。
+      return gitAction(repositoryPath, ["switch", "-c", target.branch, ref]);
+    }
+  }
+
+  if (await refExists(repositoryPath, `refs/tags/${ref}`)) {
+    return gitAction(repositoryPath, [
+      "switch",
+      "--detach",
+      `refs/tags/${ref}`
+    ]);
+  }
+  await validateBranchName(repositoryPath, ref);
+  return gitAction(repositoryPath, ["switch", ref]);
+}
+
+async function checkoutCommit(repositoryPath, hash) {
+  const commit = await validateCommitHash(repositoryPath, hash);
+  return gitAction(repositoryPath, ["switch", "--detach", commit]);
+}
+
+async function createBranchAt(repositoryPath, name, base, switchTo) {
+  await validateBranchName(repositoryPath, name);
+  const revision = await validateRevision(repositoryPath, base);
+  if (switchTo) {
+    return gitAction(repositoryPath, ["switch", "-c", name, revision]);
+  }
+  return gitAction(repositoryPath, ["branch", name, revision]);
+}
+
+async function createTagAt(repositoryPath, name, base, message) {
+  const tag = validateRefArgument(name);
+  await runGit(repositoryPath, ["check-ref-format", `refs/tags/${tag}`]);
+  const revision = await validateRevision(repositoryPath, base);
+  const note = String(message ?? "").trim();
+  const args = ["tag"];
+  if (note) {
+    args.push("-a", "-m", note);
+  }
+  args.push(tag, revision);
+  return gitAction(repositoryPath, args);
+}
+
+async function cherryPick(repositoryPath, hash) {
+  const commit = await validateCommitHash(repositoryPath, hash);
+  return gitAction(repositoryPath, ["cherry-pick", commit]);
+}
+
+async function revertCommit(repositoryPath, hash) {
+  const commit = await validateCommitHash(repositoryPath, hash);
+  return gitAction(repositoryPath, ["revert", "--no-edit", commit]);
+}
+
+async function resetToCommit(repositoryPath, hash, mode) {
+  const commit = await validateCommitHash(repositoryPath, hash);
+  const safeMode = ["soft", "mixed", "hard"].includes(mode) ? mode : "mixed";
+  return gitAction(repositoryPath, ["reset", `--${safeMode}`, commit]);
+}
+
+async function rebaseOnto(repositoryPath, hash) {
+  const commit = await validateCommitHash(repositoryPath, hash);
+  return gitAction(repositoryPath, ["rebase", commit]);
+}
+
+async function pushRef(repositoryPath, refInput) {
+  const ref = validateRefArgument(refInput);
+  const remoteNames = await fetchRemoteNames(repositoryPath);
+  const target = splitRemoteRef(ref, remoteNames);
+  const remote = target?.remote || remoteNames[0] || "origin";
+  const branch = target?.branch || ref;
+  if (!branch || branch === "HEAD") {
+    throw httpError(400, "该引用不能直接推送。");
+  }
+  if (!target && (await refExists(repositoryPath, `refs/tags/${ref}`))) {
+    return gitAction(repositoryPath, [
+      "push",
+      remote,
+      `refs/tags/${ref}:refs/tags/${ref}`
+    ]);
+  }
+  if (!(await refExists(repositoryPath, `refs/heads/${branch}`))) {
+    throw httpError(422, `本地分支 ${branch} 不存在，无法推送。`);
+  }
+  return gitAction(repositoryPath, [
+    "push",
+    remote,
+    `refs/heads/${branch}:refs/heads/${branch}`
+  ]);
+}
+
+async function deleteRef(repositoryPath, refInput, force) {
+  const ref = validateRefArgument(refInput);
+  const remoteNames = await fetchRemoteNames(repositoryPath);
+  const target = splitRemoteRef(ref, remoteNames);
+  if (target) {
+    if (!target.branch || target.branch === "HEAD") {
+      throw httpError(400, "远端 HEAD 不能删除。");
+    }
+    return gitAction(repositoryPath, [
+      "push",
+      target.remote,
+      "--delete",
+      target.branch
+    ]);
+  }
+  if (await refExists(repositoryPath, `refs/tags/${ref}`)) {
+    return gitAction(repositoryPath, ["tag", "-d", ref]);
+  }
+  await validateBranchName(repositoryPath, ref);
+  const current = await runGit(repositoryPath, ["branch", "--show-current"]);
+  if (current.stdout.trim() === ref) {
+    throw httpError(422, "不能删除当前检出的分支。");
+  }
+  return gitAction(repositoryPath, [
+    "branch",
+    force ? "-D" : "-d",
+    "--",
+    ref
+  ]);
+}
+
+async function getCommitChanges(repository, hashInput, compareInput) {
+  await assertRepositoryAvailable(repository);
+  const hash = await validateCommitHash(repository.path, hashInput);
+  const compare = ["worktree", "previous", "patch"].includes(compareInput)
+    ? compareInput
+    : "patch";
+  const common = ["--no-ext-diff", "--no-color"];
+  const showArgs = [
+    "show",
+    ...common,
+    "--format=fuller",
+    "--stat",
+    "--patch",
+    hash
+  ];
+  let args = showArgs;
+  if (compare === "worktree") {
+    args = ["diff", ...common, hash];
+  } else if (compare === "previous") {
+    args = ["diff", ...common, `${hash}^`, hash];
+  }
+
+  let result;
+  try {
+    result = await runGit(repository.path, args);
+  } catch (error) {
+    if (compare !== "previous") {
+      throw error;
+    }
+    // 根提交没有父提交，退回 show。
+    result = await runGit(repository.path, showArgs);
+  }
+
+  const raw = result.stdout.trim() || "没有可显示的差异。";
+  const buffer = Buffer.from(raw);
+  const text =
+    buffer.length > MAX_DIFF_BYTES
+      ? `${buffer.subarray(0, MAX_DIFF_BYTES).toString("utf8")}\n\n… 输出过长，已截断。`
+      : raw;
+  return { hash, compare, text };
+}
+
 async function stashPop(repositoryPath, stashRef) {
   const ref = String(stashRef || "stash@{0}");
   if (!/^stash@\{\d+\}$/.test(ref)) {
@@ -678,6 +985,7 @@ async function saveFileContent(repository, body) {
 module.exports = {
   runRepositoryAction,
   getDiff,
+  getCommitChanges,
   getFileContent,
   saveFileContent
 };

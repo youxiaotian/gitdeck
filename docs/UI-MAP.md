@@ -43,14 +43,17 @@
 | 分支搜索 | `#branchSearch` |
 | 分支列表 | `#branchList`、行 `[data-branch-row]`、复选框 `[data-branch-select]` |
 | 右侧视图切换 | `[data-context-view]` |
-| 右侧提交历史 | `#contextHistorySection`、`#contextCommitHistory` |
+| 右侧提交历史 | `#contextHistorySection`、`#contextCommitHistory`、`.context-history-row[data-commit-hash]` |
+| 历史分支徽标 | `.context-history-decoration[data-ref][data-ref-full][data-ref-kind]` |
 | 历史范围切换 | `[data-history-scope="current|all"]` |
 | 分支删除弹窗 | `[data-modal-action="delete-branches"]`、`#forceDeleteBranches` |
 | 分栏拖动 | `[data-resizer="sidebar|filetree|context"]` |
 | 主弹窗 | `#modalBackdrop`、`#modalPanel` |
 | 目录选择器 | `#directoryPickerBackdrop`、`.directory-selection-bar`、`input[data-directory-check]`、`#directoryPrimaryButton` |
 | 扫描结果选择条 | `.scan-selection-bar`、`#scanSelectionSummary`、`[data-modal-action="scan-select-all\|scan-invert-selection"]`、`input[name="scan-repository"]` |
-| 右键菜单 | `#contextMenu` |
+| 右键菜单 | `#contextMenu`、`.context-menu-wide`、`button[data-menu-action]`、`.context-menu button.primary`、`button[disabled]` |
+| 提交差异弹窗 | `#modalPanel.modal-wide`、`pre.commit-patch` |
+| 历史引用表单 | `#historyRefName`、`#historySwitchToRef`、`#historyTagMessage`、`#historyResetMode`、`[data-modal-action="create-history-ref"]` |
 | 提示 | `#toastRegion` |
 
 目录选择器列表滚动期间保持轻量：`hideContextMenu()` 在菜单已隐藏时不再写 `hidden` 属性，`window` 的滚动监听使用 `passive`；已移除自动刷新定时器，滚动期间不会有后台整页 `render()`；样式上 `.directory-list` 使用 `contain: layout paint` 与 `overscroll-behavior: contain`，`.directory-backdrop` 不使用全屏 `backdrop-filter`。
@@ -94,6 +97,8 @@
 - `scanResults`、`scanRoot`
 - 目录选择器字段
 - `menuRepositoryId`
+- `menuContext`：`{ type: "repo" | "ref" | "commit", ... }`，决定右键菜单动作分发
+- `historyRefDraft`、`commitPatchRequest`
 - `drafts`
 - `version`
 
@@ -140,8 +145,10 @@ render()
 - `data-branch-select`、`data-branch-select-all`、
   `data-branch-batch-delete`
 - `data-directory-action`
+- `data-menu-action`（`#contextMenu` 内的点击委托 `handleContextMenuClick()`）
+- `data-modal-action="create-history-ref"`（在指定提交创建分支/标签）
 
-新增按钮优先接入该事件体系，除非它需要独立持久状态或特殊键盘行为。
+右键事件由 `document` 上的 `contextmenu` 监听统一处理：命中 `[data-open-repo]` 打开仓库菜单；命中 `.context-history-row` 时 `preventDefault()`，落在徽标上打开引用菜单，否则打开提交菜单。新增按钮优先接入该事件体系，除非它需要独立持久状态或特殊键盘行为。
 
 ## Diff/编辑流程
 
@@ -191,8 +198,16 @@ render()
 - 每次选择仓库时重置为提交历史。
 - 历史范围默认 `all`，也可只看 `current`。
 - 提交历史最多请求 100 条。
-- 后端保留 `git log --graph` 的图线前缀。
-- 前端按字符列绘制多色轨道，并显示 `%D` 分支装饰。
+- 后端用 `git log --topo-order` 返回结构化行（`hash` / `parents` / `%D` 装饰），不再返回 ASCII 图线。
+- 前端 `buildHistoryGraph()` 按拓扑序分配泳道、`historyGraphSvg()` 绘制多色 SVG 轨道；`renderHistoryDecorations()` 解析 `%D` 并写入 `data-ref*`。
+
+## 提交历史右键菜单
+
+- 分支/标签徽标右键 → `openRefMenu()`；首项 `switch-ref` 高亮，调用 `performRepoAction(..., "checkoutRef", { ref })`。
+- 提交行右键 → `openCommitMenu()`；差异类动作走 `GET /api/repositories/:id/commit?hash=&compare=`，在 `.modal-wide` 里用 `pre.commit-patch` 展示。
+- `showContextMenu()` 用实测 `offsetWidth` / `offsetHeight` 钳制位置；宽菜单 `max-height` 限制后可内部滚动。
+- 页面滚动、窗口缩放、Escape、点击菜单外都会经 `hideContextMenu()` 关闭；菜单自身的滚动事件因 `elements.contextMenu.contains(event.target)` 守卫不会误关。
+- 改写仓库/远端的动作统一经 `showConfirm()`，`resetToCommit` 额外提供 `#historyResetMode` 选择。
 
 ## 分支整行选择
 

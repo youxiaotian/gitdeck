@@ -2948,6 +2948,7 @@ body.is-resizing * {
   font-size: 7px;
   font-weight: 600;
   line-height: 1.4;
+  cursor: context-menu;
 }
 
 .context-history-decoration.head {
@@ -3580,6 +3581,77 @@ body.modal-open {
   height: 1px;
   margin: 4px 2px;
   background: #ebe7de;
+}
+
+/* 提交历史右键菜单：项数多，用更宽的变体并允许菜单内部滚动。
+   页面滚动仍会关闭菜单，但菜单自身的滚动不会（见 app.js 的 scroll 守卫）。 */
+.context-menu.context-menu-wide {
+  width: 288px;
+  max-height: min(78vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.context-menu.context-menu-wide .context-menu-label {
+  position: sticky;
+  top: -5px;
+  z-index: 1;
+  background: #fffefb;
+  font-size: 10px;
+}
+
+.context-menu button.primary {
+  background: var(--green-soft);
+  color: var(--green-deep);
+  font-weight: 700;
+}
+
+.context-menu button.primary:hover {
+  background: #dceee5;
+}
+
+.context-menu button.primary .icon {
+  color: var(--green-deep);
+}
+
+.context-menu button:disabled {
+  cursor: default;
+  color: var(--ink-muted);
+  opacity: 0.55;
+}
+
+.context-menu button:disabled:hover {
+  background: transparent;
+}
+
+.commit-patch {
+  overflow: auto;
+  max-height: 58vh;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #2f4039;
+  border-radius: var(--radius-sm);
+  background: #18231f;
+  color: #d9e2dd;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  color: var(--ink);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.form-check input {
+  accent-color: var(--green);
 }
 
 .modal-panel {

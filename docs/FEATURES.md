@@ -172,6 +172,22 @@
 - DOM：`#contextHistorySection`、`#branchContextSection`、
   `#contextCommitHistory`、`[data-context-view]`
 
+## 提交历史右键菜单（参考 TortoiseGit）
+
+**用户行为**
+
+- 右键提交历史里的分支/标签徽标：菜单首项高亮「切换到 "xxx"」，可快速切到该引用。远端分支会在本地创建同名跟踪分支，`origin/HEAD` 解析为它指向的远端分支，标签进入分离 HEAD；当前检出分支该项禁用。
+- 同一菜单还支持：合并到当前分支、在此版本创建分支/标签、检出此提交、推送引用、删除引用、显示此提交的改动、与工作区/上一版本比较、复制引用名与提交哈希、浏览仓库、用 TortoiseGit 打开日志。
+- 右键提交历史行（非徽标处）：显示此提交的改动 / 与工作区比较 / 与上一版本比较、合并此提交、重置当前分支（可选 soft/mixed/hard）、变基到此提交、检出此提交、创建分支/标签、遴选、还原、复制哈希/说明/完整信息、浏览仓库、打开 TortoiseGit。
+- 合并、重置、变基、遴选、还原、推送、删除引用等会改写仓库或远端的操作都有确认弹窗；重置可显式选择模式，危险项使用红色样式。
+- 菜单较长时可内部滚动，页面滚动 / 点击别处 / Escape / 窗口缩放仍会关闭菜单。
+
+**实现位置**
+
+- 前端：`showContextMenu()`（三类菜单共用渲染与位置钳制）、`openRepoMenu()`、`openRefMenu()`、`openCommitMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`openCreateRefAtModal()`、`createHistoryRefFromModal()`、`openCommitChanges()`、`copyText()`、`hideContextMenu()`；上下文存 `state.menuContext`。
+- DOM：历史行 `data-commit-hash`，徽标 `data-ref` / `data-ref-full` / `data-ref-kind`；`#contextMenu` 的 `.context-menu-wide` 变体与 `[data-menu-action]`。
+- 后端：`GET /api/repositories/:id/commit?hash=&compare=`（`getCommitChanges()`）；`src/git-actions.js` 的 `checkoutRef`、`checkoutCommit`、`createBranchAt`、`createTagAt`、`cherryPick`、`revertCommit`、`resetToCommit`、`rebaseOnto`、`pushRef`、`deleteRef` 及引用/哈希校验。
+
 ## Stash
 
 **用户行为**
@@ -277,9 +293,9 @@
 
 **实现位置**
 
-- `openRepoMenu()`
-- `handleContextMenuClick()`
+- `openRepoMenu()`、`showContextMenu()`、`handleContextMenuClick()`、`handleRepoMenuAction()`
 - DOM：`#contextMenu`
+- 提交历史的两套菜单见上文「提交历史右键菜单」。
 
 ## 文件状态颜色
 

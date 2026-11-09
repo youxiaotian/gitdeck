@@ -339,8 +339,8 @@ test("文件列表支持 .sln 过滤并双击用 Visual Studio 打开", async ()
   );
   assert.match(
     routes,
-    /\(status\|detail\|diff\|file\|history\|action\|solutions\)/,
-    "仓库路由正则应包含 solutions 子路径"
+    /\(status\|detail\|diff\|file\|history\|commit\|action\|solutions\)/,
+    "仓库路由正则应包含 commit 与 solutions 子路径"
   );
   assert.match(
     routes,
@@ -525,4 +525,75 @@ test("不再有任何后台自动抓取或定时状态刷新", async () => {
     false,
     "后台抓取的测试应一并删除"
   );
+});
+
+test("提交历史分支标签与提交行支持 TortoiseGit 风格右键菜单", async () => {
+  const [app, css, actions, routes] = await Promise.all(
+    [
+      ["public", "app.js"],
+      ["public", "styles.css"],
+      ["src", "git-actions.js"],
+      ["src", "routes.js"]
+    ].map((parts) => fs.readFile(path.join(ROOT, ...parts), "utf8"))
+  );
+
+  // 历史行与装饰标签必须把哈希 / 引用信息写进 DOM，右键菜单才有上下文。
+  assert.match(app, /data-commit-hash="\$\{escapeHtml\(\s*row\.hash/, "历史行必须携带完整提交哈希");
+  assert.match(app, /data-ref-full="\$\{escapeHtml\(\s*decoration/, "装饰标签必须保留 %D 原文");
+  assert.match(app, /data-ref-kind="\$\{kind\}"/, "装饰标签必须标注引用类型");
+  assert.match(app, /refKind\s*=\s*decoration\.dataset\.refKind/);
+
+  // 三类菜单共用渲染器，历史菜单按上下文分发，不能落到仓库菜单动作上。
+  assert.match(app, /function showContextMenu\(\{ label, items, position, context \}\)/);
+  assert.match(app, /context-menu-wide/);
+  assert.match(app, /state\.menuContext = context/);
+  assert.match(app, /if \(context\.type === "repo"\)[\s\S]{0,120}handleRepoMenuAction/);
+  assert.match(app, /handleHistoryMenuAction\(action, context\)/);
+  assert.match(app, /function openRefMenu\(/);
+  assert.match(app, /function openCommitMenu\(/);
+  assert.match(app, /const historyRow = event\.target\.closest\("\.context-history-row"\)/);
+  assert.match(app, /event\.target\.closest\("\.context-history-decoration"\)/);
+
+  // 核心诉求：右键分支标签要能快速切换到该分支。
+  assert.match(app, /action === "switch-ref"[\s\S]{0,600}checkoutRef/, "切换引用必须走 checkoutRef 动作");
+  assert.match(app, /action: "switch-ref"[\s\S]{0,120}primary: true/, "切换引用应是菜单主操作");
+  assert.match(actions, /case "checkoutRef":/, "runRepositoryAction 必须登记 checkoutRef");
+  assert.match(actions, /async function checkoutRef\(/);
+  assert.match(actions, /"switch",\s*\n\s*"-c",\s*\n\s*target\.branch,\s*\n\s*"--track"/, "远端引用要创建同名跟踪分支");
+  assert.match(actions, /"symbolic-ref",\s*\n\s*"--short"/, "origin/HEAD 要先解析成具体远端分支");
+
+  // 其余 TortoiseGit 风格动作与 destructive 确认。
+  for (const action of [
+    "checkoutCommit",
+    "createBranchAt",
+    "createTagAt",
+    "cherryPick",
+    "revertCommit",
+    "resetToCommit",
+    "rebaseOnto",
+    "pushRef",
+    "deleteRef"
+  ]) {
+    assert.match(actions, new RegExp(`case "${action}":`), `动作白名单缺少 ${action}`);
+  }
+  assert.match(app, /openCreateRefAtModal|create-history-ref/, "创建分支/标签需要表单弹窗");
+  assert.match(app, /historyResetMode/, "重置必须让用户选择 soft/mixed/hard");
+  assert.match(app, /danger: true/, "破坏性动作需要危险确认");
+  assert.match(app, /function copyText\(/, "复制到剪贴板需要兼容非安全上下文的回退");
+  assert.match(app, /navigator\.clipboard\?\.writeText/);
+
+  // 差异接口：三种比较模式 + 参数校验 + 根提交回退。
+  assert.match(routes, /route === "commit"[\s\S]{0,180}getCommitChanges\(/, "应登记 GET commit 接口");
+  assert.match(actions, /async function getCommitChanges\(/);
+  assert.match(actions, /\["worktree", "previous", "patch"\]/);
+  assert.match(actions, /validateCommitHash\(repository\.path, hashInput\)/);
+  assert.match(actions, /根提交没有父提交，退回 show/);
+  assert.match(actions, /module\.exports = \{[\s\S]*getCommitChanges/, "getCommitChanges 必须导出");
+
+  // 菜单变长后必须允许内部滚动，且不能把菜单自身滚动当成页面滚动。
+  assert.match(css, /\.context-menu\.context-menu-wide \{/);
+  assert.match(css, /max-height: min\(78vh, 640px\)/);
+  assert.match(css, /\.context-menu button\.primary \{/);
+  assert.match(css, /\.commit-patch \{/);
+  assert.match(app, /elements\.contextMenu\.contains\(event\.target\)/, "菜单内部滚动不能关闭菜单");
 });

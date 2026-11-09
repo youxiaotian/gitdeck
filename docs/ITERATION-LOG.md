@@ -2,6 +2,18 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-09 - 提交历史增加 TortoiseGit 风格右键菜单
+
+- 用户反馈：右键提交历史里的分支标签时，希望能像 TortoiseGit 那样弹出菜单，快速切换到该分支；整套右键菜单也可参考乌龟补齐相关功能。
+- 改动（前端 `public/app.js`、`public/styles.css`）：
+  - 历史行补 `data-commit-hash`，`renderHistoryDecorations()` 为每个徽标补 `data-ref`（规范化引用名）、`data-ref-full`（`%D` 原文）、`data-ref-kind`（head/local/remote/remote-head/tag），并给出右键提示。
+  - 抽出 `showContextMenu({ label, items, position, context })`，仓库行、分支徽标、提交行三类菜单共用渲染与实测宽高钳制；`state.menuContext` 决定 `handleContextMenuClick()` 分发到 `handleRepoMenuAction()` 还是 `handleHistoryMenuAction()`。`hideContextMenu()` 同步清理上下文与 `.context-menu-wide`。
+  - 徽标菜单首项高亮「切换到 "xxx"」；提交行菜单覆盖比较 / 合并 / 重置 / 变基 / 检出 / 建分支标签 / 遴选 / 还原 / 复制 / 浏览 / 打开 TortoiseGit。改写仓库或远端的动作都有 `showConfirm()`，重置提供 soft/mixed/hard 单选，差异在 `.modal-wide` 的 `pre.commit-patch` 中展示，复制提供非安全上下文回退。
+  - `.context-menu-wide` 加宽到 288px 并允许内部滚动；scroll 守卫用 `elements.contextMenu.contains(event.target)` 区分页面滚动与菜单内部滚动，避免误关。
+- 改动（后端 `src/git-actions.js`、`src/routes.js`）：新增 `checkoutRef`（本地直切 / 远端建同名跟踪分支 / 标签分离 HEAD / `origin/HEAD` 解析符号引用）、`checkoutCommit`、`createBranchAt`、`createTagAt`、`cherryPick`、`revertCommit`、`resetToCommit`、`rebaseOnto`、`pushRef`、`deleteRef`；引用与哈希先经 `validateRefArgument()` / `validateRevision()` / `validateCommitHash()` 校验。新增只读 `GET /api/repositories/:id/commit?hash=&compare=patch|worktree|previous`，根提交自动回退 `git show`，输出上限 512 KB。
+- 验证：`node --test` 40/40（新增 `tests/api.test.js` 端到端差异接口与动作断言、`tests/project-files.test.js` 源码约束）、`node --check`、`node tools/check-docs.js`；隔离服务 + 无头 Chrome/CDP 验证真实右键交互。
+- 文档同步：`API.md`（同时修正 history 示例为结构化行）、`MAP.md`、`UI-MAP.md`（同时修正旧的 `--graph` 描述）、`FEATURES.md`、`TESTING.md`、本文件。
+
 ## 2026-11-09 - 扫描结果增加全选 / 反选与已选清单
 
 - 用户反馈：「扫描本地仓库」结果多时逐项勾选不方便，希望加全选、反选，并把选中了哪些拼接展示在列表上方。

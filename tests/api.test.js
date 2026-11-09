@@ -789,6 +789,125 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     "solutions 接口应直接扫描目录，返回根目录与子目录下的 .sln"
   );
 
+  // 提交历史右键菜单：差异接口 + 引用/提交级动作。
+  const headHash = runGit(repositoryPath, ["rev-parse", "HEAD"]).trim();
+  const rootHash = runGit(repositoryPath, [
+    "rev-list",
+    "--max-parents=0",
+    "HEAD"
+  ]).trim();
+  const commitPatch = await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/commit?hash=${headHash}&compare=patch`
+  );
+  assert.equal(commitPatch.hash, headHash);
+  assert.equal(commitPatch.compare, "patch");
+  assert.match(commitPatch.text, /commit |diff --git|Initial commit/);
+  const previousDiff = await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/commit?hash=${rootHash}&compare=previous`
+  );
+  assert.equal(previousDiff.compare, "previous");
+  assert.ok(
+    previousDiff.text.length > 0,
+    "根提交没有父提交时应退回 git show，而不是报错"
+  );
+  const worktreeDiff = await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/commit?hash=${headHash}&compare=worktree`
+  );
+  assert.equal(worktreeDiff.compare, "worktree");
+
+  const branchAtCommit = await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/action`,
+    {
+      method: "POST",
+      body: {
+        action: "createBranchAt",
+        name: "history-probe",
+        base: rootHash,
+        switchTo: false
+      }
+    }
+  );
+  assert.equal(
+    branchAtCommit.summary.branch,
+    "main",
+    "不勾选切换时只创建分支，当前分支保持不变"
+  );
+  assert.match(
+    runGit(repositoryPath, ["branch", "--list", "history-probe"]),
+    /history-probe/
+  );
+
+  await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/action`,
+    {
+      method: "POST",
+      body: {
+        action: "createTagAt",
+        name: "v-history-probe",
+        base: rootHash,
+        message: "probe"
+      }
+    }
+  );
+  assert.match(
+    runGit(repositoryPath, ["tag", "--list"]),
+    /v-history-probe/
+  );
+  await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/action`,
+    { method: "POST", body: { action: "deleteRef", ref: "v-history-probe" } }
+  );
+  assert.doesNotMatch(
+    runGit(repositoryPath, ["tag", "--list"]),
+    /v-history-probe/
+  );
+
+  runGit(repositoryPath, [
+    "update-ref",
+    "refs/remotes/origin/remote-topic",
+    headHash
+  ]);
+  const switchedRemote = await callApi(
+    baseUrl,
+    token,
+    `/api/repositories/${repository.id}/action`,
+    { method: "POST", body: { action: "checkoutRef", ref: "origin/remote-topic" } }
+  );
+  assert.equal(switchedRemote.summary.branch, "remote-topic");
+  assert.match(
+    runGit(repositoryPath, ["config", "--get", "branch.remote-topic.remote"]),
+    /origin/,
+    "从远端引用切换应建立跟踪关系"
+  );
+  await assert.rejects(
+    () =>
+      callApi(baseUrl, token, `/api/repositories/${repository.id}/action`, {
+        method: "POST",
+        body: { action: "checkoutRef", ref: "-bad" }
+      }),
+    /引用名称无效/
+  );
+  await assert.rejects(
+    () =>
+      callApi(baseUrl, token, `/api/repositories/${repository.id}/action`, {
+        method: "POST",
+        body: { action: "cherryPick", hash: "not-a-hash" }
+      }),
+    /提交哈希无效/
+  );
+
   const removed = await callApi(
     baseUrl,
     token,

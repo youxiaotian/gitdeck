@@ -35,6 +35,7 @@ const {
 const {
   runRepositoryAction,
   getDiff,
+  getCommitChanges,
   getFileContent,
   saveFileContent
 } = require("./git-actions");
@@ -179,7 +180,7 @@ async function handleApi(request, response, url) {
   }
 
   const repositoryMatch = url.pathname.match(
-    /^\/api\/repositories\/([a-f0-9]{12})(?:\/(status|detail|diff|file|history|action|solutions))?$/
+    /^\/api\/repositories\/([a-f0-9]{12})(?:\/(status|detail|diff|file|history|commit|action|solutions))?$/
   );
   if (!repositoryMatch) {
     throw httpError(404, "接口不存在。");
@@ -213,6 +214,16 @@ async function handleApi(request, response, url) {
       url.searchParams.get("limit")
     );
     sendJson(response, 200, history);
+    return;
+  }
+
+  if (request.method === "GET" && route === "commit") {
+    const changes = await getCommitChanges(
+      repository,
+      url.searchParams.get("hash"),
+      url.searchParams.get("compare")
+    );
+    sendJson(response, 200, changes);
     return;
   }
 
