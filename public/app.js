@@ -391,8 +391,9 @@
     document.getElementById("emptyScanButton").addEventListener("click", () =>
       openScanModal()
     );
+    // 顶部按钮由「只读本地状态」改为「抓取所有仓库」；只在用户点击时触发。
     elements.refreshAllButton.addEventListener("click", () =>
-      refreshAllSummaries({ force: true })
+      fetchAllRepositories().catch(() => {})
     );
     elements.repoSearch.addEventListener("input", (event) => {
       state.search = event.target.value.trim().toLowerCase();
@@ -1587,7 +1588,7 @@
         <span>${
           filtered
             ? "换个关键字，或切换到「全部仓库」。"
-            : "已扫描全部已添加仓库的目录；解决方案若在这些目录之外，需要手动指定路径。"
+            : "已扫描全部已添加仓库的根目录（不递归子目录）；子目录里的 .sln 不会列出。"
         }</span>
       </div>
     `;
@@ -1630,7 +1631,7 @@
       return `
         <div class="solution-list-empty">
           ${icon("search")}
-          <span>正在汇总所有仓库的 .sln 文件…</span>
+          <span>正在汇总所有仓库根目录的 .sln 文件…</span>
         </div>
       `;
     }
@@ -1651,7 +1652,7 @@
           <span>${
             filtered
               ? "换个关键字，或切换到「全部仓库」。"
-              : "已扫描全部已添加仓库；点「重新扫描」重试。"
+              : "已扫描全部已添加仓库的根目录（不递归子目录）；点「重新扫描」重试。"
           }</span>
           <button
             type="button"
@@ -1687,7 +1688,7 @@
     return `
       <div class="solution-list">
         <div class="solution-list-head">
-          共 ${items.length} 个 · 来自 ${repositoryCount} 个仓库 · 双击用 VS 打开
+          共 ${items.length} 个 · 来自 ${repositoryCount} 个仓库 · 仅仓库根目录第一层 · 双击用 VS 打开
         </div>
         ${rows}
       </div>
@@ -3222,6 +3223,31 @@
     }
   }
 
+  // 顶部「抓取全部」：对所有已添加仓库执行 git fetch --all --prune，
+  // 抓完顺带刷新状态，这样 origin/* 的新提交才会出现在界面上。
+  // 只在用户点击时触发；首次加载 / 窗口恢复 / Git 动作后走的
+  // refreshAllSummaries() 仍然只读本地状态，不做任何后台抓取。
+  async function fetchAllRepositories() {
+    const ids = state.repositories.map((repository) => repository.id);
+    if (!ids.length || state.bulkBusy) {
+      return;
+    }
+    const button = elements.refreshAllButton;
+    const label = button.querySelector("span");
+    button.disabled = true;
+    label.textContent = `抓取中 0/${ids.length}`;
+    try {
+      await executeBulkAction("fetch", ids, {
+        onProgress: (done) => {
+          label.textContent = `抓取中 ${done}/${ids.length}`;
+        }
+      });
+    } finally {
+      button.disabled = false;
+      label.textContent = "抓取全部";
+    }
+  }
+
   async function selectRepository(id) {
     const repository = state.repositories.find((item) => item.id === id);
     if (!repository) {
@@ -4558,7 +4584,7 @@
     executeBulkAction(action, ids).catch(() => {});
   }
 
-  async function executeBulkAction(action, ids) {
+  async function executeBulkAction(action, ids, { onProgress } = {}) {
     if (state.bulkBusy) {
       return;
     }
@@ -4567,35 +4593,47 @@
     renderRepoList();
 
     try {
-      const results = await Promise.allSettled(
-        ids.map(async (id) => {
-          const result = await api(`/api/repositories/${id}/action`, {
-            method: "POST",
-            body: { action }
-          });
-          if (result.summary) {
-            state.summaries.set(id, result.summary);
-            state.errors.delete(id);
+      const failures = [];
+      // 4 个一批：抓取全部仓库时不能一次拉起几十个 git 进程，
+      // 否则会和正在操作同一批 .git 的 TortoiseGit / IDE 撞车。
+      for (let index = 0; index < ids.length; index += 4) {
+        const batch = ids.slice(index, index + 4);
+        const results = await Promise.allSettled(
+          batch.map(async (id) => {
+            const result = await api(`/api/repositories/${id}/action`, {
+              method: "POST",
+              body: { action }
+            });
+            if (result.summary) {
+              state.summaries.set(id, result.summary);
+              state.errors.delete(id);
+            }
+            return result;
+          })
+        );
+        for (const result of results) {
+          if (result.status === "rejected") {
+            failures.push(result.reason?.message || "操作失败");
           }
-          return result;
-        })
-      );
-      const failed = results.filter((result) => result.status === "rejected");
+        }
+        onProgress?.(Math.min(index + batch.length, ids.length));
+        renderRepoList();
+      }
       if (state.selectedId) {
         await loadRepositoryDetail(state.selectedId);
       } else {
         render();
       }
-      if (failed.length) {
+      if (failures.length) {
         showToast(
           "批量操作部分完成",
-          `${results.length - failed.length} 个成功，${failed.length} 个失败：${failed[0].reason.message}`,
+          `${ids.length - failures.length} 个成功，${failures.length} 个失败：${failures[0]}`,
           "warning"
         );
       } else {
         showToast(
-          "批量操作完成",
-          `${ids.length} 个仓库已执行${actionLabels[action] || "操作"}。`,
+          actionLabels[action] || "操作完成",
+          `${ids.length} 个仓库已完成${action === "fetch" ? "抓取" : "操作"}，状态已刷新。`,
           "success"
         );
       }
@@ -4953,11 +4991,41 @@
         title: "删除这个引用？",
         message: `即将删除 <strong>${escapeHtml(
           context.ref
-        )}</strong>。远端分支会通过 <code>git push --delete</code> 从远端移除，本地分支用 <code>git branch -d</code> 删除。提交对象本身不会被立刻销毁。`,
+        )}</strong>。远端分支会通过 <code>git push --delete</code> 从远端移除，本地分支默认用 <code>git branch -d</code> 删除（Git 会拒绝未合并的分支）。提交对象本身不会被立刻销毁。`,
         danger: true,
+        bodyExtra: `
+          <label class="branch-force-option">
+            <input type="checkbox" id="forceDeleteRef" />
+            <span>
+              <strong>强制删除未合并分支（-D）</strong>
+              <small>提示 not fully merged 时勾选；会丢失该分支上尚未合并的提交，请确认分支内容不再需要。</small>
+            </span>
+          </label>
+        `,
         confirmLabel: "删除引用",
-        onConfirm: () =>
-          performRepoAction(repoId, "deleteRef", { ref: context.ref })
+        onConfirm: async () => {
+          const force = Boolean(
+            document.getElementById("forceDeleteRef")?.checked
+          );
+          try {
+            await performRepoAction(repoId, "deleteRef", {
+              ref: context.ref,
+              force
+            });
+          } catch (error) {
+            // 安全删除被 Git 拒绝时弹窗会保持打开，把原始报错换成可操作的引导。
+            if (/not fully merged/i.test(String(error?.message || ""))) {
+              elements.toastRegion.lastElementChild?.remove();
+              showToast(
+                "引用删除失败",
+                "该分支有未合并提交，Git 拒绝了安全删除。请勾选「强制删除未合并分支（-D）」后再次点击「删除引用」。",
+                "error"
+              );
+              document.getElementById("forceDeleteRef")?.focus();
+            }
+            throw error;
+          }
+        }
       });
       return;
     }
@@ -5332,28 +5400,251 @@
       });
   }
 
-  function renderDiff(diff) {
-    return String(diff || "")
-      .split(/\r?\n/)
-      .map((line) => {
-        let className = "";
-        if (
-          line.startsWith("+++") ||
-          line.startsWith("---") ||
-          line.startsWith("diff --git") ||
-          line.startsWith("index ") ||
-          line.startsWith("new file") ||
-          line.startsWith("deleted file")
-        ) {
-          className = "header";
-        } else if (line.startsWith("@@")) {
-          className = "hunk";
-        } else if (line.startsWith("+")) {
-          className = "added";
-        } else if (line.startsWith("-")) {
-          className = "removed";
+  // Diff 行内变动：对齐 TortoiseGitMerge 的 inline diff（默认 word-wise）。
+  // 手册要点：只有「改动相对小」的行算 modified line，未变部分用中性的 modified
+  // 背景，真正变化的「整个词」用 inline added / inline removed 颜色标出；
+  // char-wise 会把一个变量名的改动拆成一堆零碎字符，默认不采用。
+  // 另外长行（默认 3000 字符以上）不做行内差异。纯前端逻辑，F5 即生效。
+  const MAX_INLINE_LINE_CHARS = 3000;
+  const MAX_INLINE_TOKENS = 400;
+  const MAX_INLINE_CELLS = 40000;
+  const MAX_INLINE_BLOCK_LINES = 80;
+  const MAX_INLINE_PAIRS = 200;
+  const MIN_INLINE_SIMILARITY = 0.3;
+  // 词 = 标识符 / 数字 / 连续汉字 / 空白 / 单个标点，贴合代码的阅读单位。
+  const INLINE_TOKEN_RE =
+    /\s+|[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|[\u3400-\u9fff]+|[^\s]/gu;
+
+  function diffLineKind(line) {
+    if (
+      line.startsWith("+++") ||
+      line.startsWith("---") ||
+      line.startsWith("diff --git") ||
+      line.startsWith("index ") ||
+      line.startsWith("new file") ||
+      line.startsWith("deleted file") ||
+      line.startsWith("similarity index") ||
+      line.startsWith("rename ") ||
+      line.startsWith("Binary files") ||
+      line.startsWith("old mode") ||
+      line.startsWith("new mode")
+    ) {
+      return "header";
+    }
+    if (line.startsWith("@@")) {
+      return "hunk";
+    }
+    if (line.startsWith("+")) {
+      return "added";
+    }
+    if (line.startsWith("-")) {
+      return "removed";
+    }
+    return "context";
+  }
+
+  // word-wise：把行切成词再比较。改一个字符时整个词一起高亮，
+  // 比逐字符 diff 更容易看清「这一行到底改了哪个标识符/参数」。
+  function tokenizeDiffLine(text) {
+    return text.match(INLINE_TOKEN_RE) || [];
+  }
+
+  function diffTokens(text) {
+    const tokens = tokenizeDiffLine(text).filter(
+      (token) => !/^\s+$/.test(token)
+    );
+    return new Set(tokens);
+  }
+
+  function diffLineSimilarity(left, right) {
+    const a = diffTokens(left);
+    const b = diffTokens(right);
+    if (!a.size || !b.size) {
+      return 0;
+    }
+    let shared = 0;
+    for (const token of a) {
+      if (b.has(token)) {
+        shared += 1;
+      }
+    }
+    return shared / Math.max(a.size, b.size);
+  }
+
+  // 词级 LCS，返回 { left, right }，每段 { text, changed }。
+  // 公共词太少（整行重写）返回 null，退回整行着色 —— 对应乌龟里的
+  // replacement 行，避免渲染出一堆零碎色块。
+  function inlineDiffSegments(before, after) {
+    if (
+      before.length > MAX_INLINE_LINE_CHARS ||
+      after.length > MAX_INLINE_LINE_CHARS
+    ) {
+      return null;
+    }
+    const a = tokenizeDiffLine(before);
+    const b = tokenizeDiffLine(after);
+    if (
+      a.length > MAX_INLINE_TOKENS ||
+      b.length > MAX_INLINE_TOKENS ||
+      a.length * b.length > MAX_INLINE_CELLS
+    ) {
+      return null;
+    }
+    // 先剥掉完全相同的首尾词：缩小 DP 规模，也让高亮边界落在词边界上。
+    let head = 0;
+    while (head < a.length && head < b.length && a[head] === b[head]) {
+      head += 1;
+    }
+    let tail = 0;
+    while (
+      tail < a.length - head &&
+      tail < b.length - head &&
+      a[a.length - 1 - tail] === b[b.length - 1 - tail]
+    ) {
+      tail += 1;
+    }
+    const midA = a.slice(head, a.length - tail);
+    const midB = b.slice(head, b.length - tail);
+    const dp = [];
+    for (let i = 0; i <= midA.length; i += 1) {
+      dp.push(new Uint16Array(midB.length + 1));
+    }
+    for (let i = midA.length - 1; i >= 0; i -= 1) {
+      for (let j = midB.length - 1; j >= 0; j -= 1) {
+        dp[i][j] =
+          midA[i] === midB[j]
+            ? dp[i + 1][j + 1] + 1
+            : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    const common = head + tail + dp[0][0];
+    if (common / Math.max(a.length, b.length, 1) < MIN_INLINE_SIMILARITY) {
+      return null;
+    }
+    const left = [];
+    const right = [];
+    const push = (list, text, changed) => {
+      const last = list[list.length - 1];
+      if (last && last.changed === changed) {
+        last.text += text;
+      } else {
+        list.push({ text, changed });
+      }
+    };
+    for (let k = 0; k < head; k += 1) {
+      push(left, a[k], false);
+      push(right, b[k], false);
+    }
+    let i = 0;
+    let j = 0;
+    while (i < midA.length && j < midB.length) {
+      if (midA[i] === midB[j]) {
+        push(left, midA[i], false);
+        push(right, midB[j], false);
+        i += 1;
+        j += 1;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        push(left, midA[i], true);
+        i += 1;
+      } else {
+        push(right, midB[j], true);
+        j += 1;
+      }
+    }
+    while (i < midA.length) {
+      push(left, midA[i], true);
+      i += 1;
+    }
+    while (j < midB.length) {
+      push(right, midB[j], true);
+      j += 1;
+    }
+    for (let k = tail; k > 0; k -= 1) {
+      push(left, a[a.length - k], false);
+      push(right, b[b.length - k], false);
+    }
+    return { left, right };
+  }
+
+  function buildInlineMarks(lines) {
+    const marks = new Map();
+    const kinds = lines.map(diffLineKind);
+    let pairBudget = MAX_INLINE_PAIRS;
+    let index = 0;
+    while (index < lines.length) {
+      if (kinds[index] !== "removed" && kinds[index] !== "added") {
+        index += 1;
+        continue;
+      }
+      const start = index;
+      while (
+        index < lines.length &&
+        (kinds[index] === "removed" || kinds[index] === "added")
+      ) {
+        index += 1;
+      }
+      if (index - start > MAX_INLINE_BLOCK_LINES || pairBudget <= 0) {
+        continue;
+      }
+      const dels = [];
+      const adds = [];
+      for (let i = start; i < index; i += 1) {
+        (kinds[i] === "removed" ? dels : adds).push(i);
+      }
+      // Git unified patch 里一次改写是「连续的 - 行」后接「连续的 + 行」，
+      // 按位置顺序配对才对应乌龟两栏里同一行的左右两侧；全局找最相似
+      // 反而会把相邻的、内容相近的两行凑错对。
+      const count = Math.min(dels.length, adds.length);
+      for (let k = 0; k < count && pairBudget > 0; k += 1) {
+        const delIndex = dels[k];
+        const addIndex = adds[k];
+        const score = diffLineSimilarity(
+          lines[delIndex].slice(1),
+          lines[addIndex].slice(1)
+        );
+        if (score < MIN_INLINE_SIMILARITY) {
+          continue;
         }
-        return `<span class="diff-line ${className}">${escapeHtml(line || " ")}</span>`;
+        const segments = inlineDiffSegments(
+          lines[delIndex].slice(1),
+          lines[addIndex].slice(1)
+        );
+        if (!segments) {
+          continue;
+        }
+        pairBudget -= 1;
+        marks.set(delIndex, segments.left);
+        marks.set(addIndex, segments.right);
+      }
+    }
+    return marks;
+  }
+
+  function renderDiff(diff) {
+    const lines = String(diff || "").split(/\r?\n/);
+    const marks = buildInlineMarks(lines);
+    return lines
+      .map((line, index) => {
+        const kind = diffLineKind(line);
+        const className = kind === "context" ? "" : kind;
+        const segments = marks.get(index);
+        // 配对成功的行算 modified line：整行换成中性底色，只有变化片段上色。
+        const inline = segments ? " inline" : "";
+        let content = escapeHtml(line || " ");
+        if (segments) {
+          const markClass =
+            kind === "removed" ? "diff-inline-del" : "diff-inline-add";
+          content = `<span class="diff-marker">${escapeHtml(
+            line[0] || " "
+          )}</span>${segments
+            .map((segment) =>
+              segment.changed
+                ? `<mark class="${markClass}">${escapeHtml(segment.text)}</mark>`
+                : escapeHtml(segment.text)
+            )
+            .join("")}`;
+        }
+        return `<span class="diff-line ${className}${inline}">${content}</span>`;
       })
       .join("");
   }
@@ -6164,7 +6455,10 @@
 
   function showToast(title, message, type = "success") {
     const toast = document.createElement("div");
-    toast.className = `toast ${type}`;
+    // 多行错误详情（例如 index.lock 占用进程清单）要完整展示并留足阅读时间，
+    // 不能被 toast 默认的 3 行截断和 5 秒自动消失吞掉。
+    const detailed = typeof message === "string" && message.includes("\n");
+    toast.className = `toast ${type}${detailed ? " has-detail" : ""}`;
     const iconName = type === "error" || type === "warning" ? "alert" : "check";
     toast.innerHTML = `
       ${icon(iconName)}
@@ -6176,7 +6470,7 @@
     `;
     elements.toastRegion.appendChild(toast);
     elements.screenReaderStatus.textContent = `${title}。${message || ""}`;
-    window.setTimeout(() => toast.remove(), 5200);
+    window.setTimeout(() => toast.remove(), detailed ? 20000 : 5200);
   }
 
   function formatRelative(value) {

@@ -4,7 +4,7 @@
 
 `public/index.html` 包含：
 
-- `header.topbar`
+- `header.topbar`（`#refreshAllButton` 为「抓取全部」，点击后对所有仓库 `fetch --all --prune` 并显示进度）
 - `aside.repo-sidebar`
 - `main#mainPanel`
 - `aside#contextPanel`
@@ -37,7 +37,7 @@
 | 变更目录树 | `#fileGroups`、行 `[data-preview-file]` |
 | 文件视图切换 | `#fileViewToggle`、`#fileTreeTitle` |
 | 文件批量操作 | `[data-file-select-all]`、`[data-batch-stage]`、`[data-batch-discard]` |
-| Diff/编辑器 | `#filePreview`、`#codeEditor` |
+| Diff/编辑器 | `#filePreview`、`#codeEditor`、`pre.diff-view`、`.diff-line`、`.diff-marker`、`mark.diff-inline-del` / `mark.diff-inline-add` |
 | 预览模式 | `[data-preview-mode="diff|edit"]` |
 | 提交区 | `#commitMessage`、`#amendCheckbox`、`[data-action="commit"]` |
 | 分支搜索 | `#branchSearch` |
@@ -47,6 +47,7 @@
 | 历史分支徽标 | `.context-history-decoration[data-ref][data-ref-full][data-ref-kind]` |
 | 历史范围切换 | `[data-history-scope="current|all"]` |
 | 分支删除弹窗 | `[data-modal-action="delete-branches"]`、`#forceDeleteBranches` |
+| 引用删除确认框 | `data-modal-action="confirm"`、`#forceDeleteRef`（默认不勾选；勾选后 `deleteRef` 带 `force: true`，失败时弹窗保持打开可直接重试） |
 | 分栏拖动 | `[data-resizer="sidebar|filetree|context"]` |
 | 主弹窗 | `#modalBackdrop`、`#modalPanel` |
 | 目录选择器 | `#directoryPickerBackdrop`、`.directory-selection-bar`、`input[data-directory-check]`、`#directoryPrimaryButton` |
@@ -55,7 +56,7 @@
 | .sln 解决方案模式 | `#solutionFilterToggle`、`#solutionToolbar`、`#solutionSearchInput`、`[data-solution-scope]`、`[data-solution-rescan]`、`[data-solution-select]`、`[data-solution-key]`、`[data-solution-clear-filters]`、`.solution-row` |
 | 提交差异弹窗 | `#modalPanel.modal-wide`、`pre.commit-patch` |
 | 历史引用表单 | `#historyRefName`、`#historySwitchToRef`、`#historyTagMessage`、`[data-modal-action="create-history-ref"]` |
-| 提示 | `#toastRegion` |
+| 提示 | `#toastRegion`、`.toast.has-detail`（多行错误详情：保留换行、可滚动、停留 20 秒；`.toast-region:has(.toast.has-detail)` 加宽到 560px） |
 
 目录选择器列表滚动期间保持轻量：`hideContextMenu()` 在菜单已隐藏时不再写 `hidden` 属性，`window` 的滚动监听使用 `passive`；已移除自动刷新定时器，滚动期间不会有后台整页 `render()`；样式上 `.directory-list` 使用 `contain: layout paint` 与 `overscroll-behavior: contain`，`.directory-backdrop` 不使用全屏 `backdrop-filter`。
 
@@ -148,7 +149,7 @@ render()
 - `data-directory-action`
 - `data-menu-action`（`#contextMenu` 内的点击委托 `handleContextMenuClick()`）
 - `data-modal-action="create-history-ref"`（在指定提交创建分支/标签）
-- `.sln` 模式：开启按钮走 `data-action="toggle-solution-filter"`；列表用 `data-solution-select` / `data-solution-key` 单选与双击打开（携带目标仓库 id）；搜索框 `input` 事件、范围与重新扫描按钮走 `data-solution-*` 委托；跨仓库结果存 `state.solutionCatalog` / `solutionCache`，切换仓库不关闭模式。
+- `.sln` 模式：开启按钮走 `data-action="toggle-solution-filter"`；列表用 `data-solution-select` / `data-solution-key` 单选与双击打开（携带目标仓库 id）；搜索框 `input` 事件、范围与重新扫描按钮走 `data-solution-*` 委托；跨仓库结果存 `state.solutionCatalog` / `solutionCache`，切换仓库不关闭模式；后端 `listSolutions()` 只读仓库根目录第一层，不递归子目录，列表头与空态都会标明范围。
 - `.sln` 双击约定：单击 `[data-solution-select]` 只走 `selectSolutionItem()`（增量切 `.selected` + 重建右侧 `renderSolutionPreview()`），**绝不重建列表 DOM**；否则浏览器不会派发 `dblclick`，表现为双击没反应。打开由 `requestOpenSolution()` 统一处理，`dblclick` 与第二次 `click(detail>=2)` 都会进入，靠 800ms 去重只发一次 `openVisualStudio` 动作请求。
 
 右键事件由 `document` 上的 `contextmenu` 监听统一处理：命中 `[data-open-repo]` 打开仓库菜单；只有命中 `.context-history-decoration` 且能找到所属 `.context-history-row` 时才 `preventDefault()` 并打开引用菜单。历史行其它位置不拦截，保留浏览器默认菜单。新增按钮优先接入该事件体系，除非它需要独立持久状态或特殊键盘行为。
@@ -160,6 +161,7 @@ render()
 - 通过 `previewRequest` 丢弃过期的异步响应。
 - 编辑器有未保存内容时，切换文件或模式会要求确认。
 - 保存后仍停留在编辑模式，同时更新哈希、原内容和状态。
+- Diff 统一视图里，配对的删除/新增行按 word-wise 词级 LCS 标出行内变化的整词（`mark.diff-inline-del` / `mark.diff-inline-add`），该行背景切换成中性的 `.diff-line.added.inline` / `.removed.inline`；上下文行不标亮，整行重写或超大变更块退回行级着色。主预览区与 diff 弹窗共用 `renderDiff()`。
 
 ## 文件视图切换
 

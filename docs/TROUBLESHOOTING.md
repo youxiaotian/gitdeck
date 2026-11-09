@@ -102,6 +102,7 @@ Git 发现仓库所有者与当前 Windows 账号不同。GitDeck 导入和后�
 2. 写入操作使用正常本地权限运行 GitDeck。
 3. 状态和还原已经使用 `GIT_OPTIONAL_LOCKS=0`，但 add/commit 仍需要仓库写权限。
 4. 有其他 Git 进程运行时不能直接删除锁文件。
+5. 若报错是 `File exists`（残留的陈旧锁）而不是权限不足，GitDeck 会自动判定占用情况并处理，见下文「创建提交报 `index.lock` / `File exists`」。
 
 ## 提示“该目录不是 Git 仓库”
 
@@ -144,7 +145,7 @@ Git 发现仓库所有者与当前 Windows 账号不同。GitDeck 导入和后�
 - 当前分支不能删除。
 - `git branch -d` 会拒绝未合并分支。错误内容通常包含
   `is not fully merged`。
-- 如果确认该分支提交不再需要，在删除弹窗勾选“强制删除未合并分支（-D）”。
+- 如果确认该分支提交不再需要，在删除弹窗勾选“强制删除未合并分支（-D）”：批量删除弹窗是 `#forceDeleteBranches`，提交历史分支徽标右键「删除引用」是 `#forceDeleteRef`。删除失败时确认框会保持打开，可直接勾选后再点一次，不必重新右键。
 - 强制删除会丢失未合并提交，默认关闭。
 - 远程删除需要匹配的上游或远程跟踪分支。
 - 远端认证可能缺失或过期。
@@ -203,12 +204,34 @@ Get-ChildItem "<用户仓库>/.git" -Recurse -Force -File -Filter "*.lock" |
 ```
 
 - 日志里若出现 `[auto-fetch]`，说明运行中的服务还是旧代码；关掉窗口后重新运行 `.\start.cmd`。
-- 锁文件时间若是很久以前（几周、几个月），通常是历史残留而不是 GitDeck 正在占用；确认没有 Git / IDE 在操作后再自行处理。**GitDeck 不会删除用户仓库里的任何文件。**
+- 锁文件时间若是很久以前（几周、几个月），通常是历史残留而不是 GitDeck 正在占用；现在用户主动执行 Git 动作时，GitDeck 会先确认无人持有再自动清理这类陈旧锁（见下一节），不需要手动删。
 - 若 TortoiseGit 持续「未响应」但系统里没有 git 子进程、仓库也没有近期锁，多半是它自身在 `<All Branches>` 模式下绘制大量远端分支图；可把范围切到当前分支，或清理不再需要的 `origin/*` 远程跟踪分支。
+
+## 创建提交报 `index.lock` / `File exists`
+
+`git add` 与 `git commit` 都要先拿到 `.git/index.lock`；上一条 git 进程被强杀（例如旧版关窗口时）会留下 0 字节的空锁。Git 不往锁里写 PID / 进程名，所以从文件本身查不出创建者。
+
+现在 GitDeck 在**用户主动执行 Git 动作**时默认处理，不需要手动删锁，也没有任何后台巡检：
+
+1. 以 Windows 独占方式（`FileShare.None`）尝试打开锁文件。
+2. 能打开 → 没有任何进程持有，判定为陈旧锁，删除后自动重试该命令一次。toast 显示「检测到无人占用的陈旧 `.git/index.lock`，已自动删除并重试成功」，`data/server.log` 记一条 `[index-lock]`。
+3. 打不开 → 仍有进程持有，**绝不删除**。返回 423，多行错误提示列出可能占用的进程（进程名、PID、命令行，命令行包含该仓库路径的优先）、占用判据和 Git 原始错误。关掉对应程序（常见是 TortoiseGit Log、Visual Studio、VSCode 或另一个正在跑的 git 命令）后重试即可。
+4. 独占探测失败、无法确定 Git 目录、或锁文件不在 Git 目录内 → 一律不删任何文件，提示手动确认后再处理。
+
+没有 `--force` 式的强制提交，也不建议用 `GIT_INDEX_FILE` 指向临时索引绕过：提交后主索引不更新，后续状态会彻底错乱。若确实需要手工处理，先确认没有 git / IDE 写进程，再**改名备份**而不是直接删除：
+
+```powershell
+cd <repo>
+Get-CimInstance Win32_Process | ? { $_.Name -match '^git\.exe|^TortoiseGitProc' } | select ProcessId,CommandLine
+ren .git\index.lock index.lock.stale-<日期>
+git status --short
+```
 
 ## 选中 `.sln` 按钮后提示「目录下没有 .sln 文件」
 
 目录里明明有 `.sln` 却提示没有，通常不是扫描失败，而是**运行中的服务仍是旧代码**：`GET /api/repositories/:id/solutions` 只在 Node 进程启动时加载，服务默认常驻，按 F5 或关掉窗口重开都不会重载 `src/`。旧进程会返回 404，前端若把请求失败当成空结果，就会误报「目录下没有 .sln 文件」。
+
+另外，解决方案列表**只扫描仓库根目录第一层**，不递归子目录（为避免大仓库刷新卡顿）。子目录里的 `.sln` 不会出现在列表里，这是预期行为，不是扫描失败。
 
 现在界面会明确显示「GitDeck 服务仍是旧版本，缺少解决方案接口」。处理：
 

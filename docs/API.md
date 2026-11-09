@@ -248,19 +248,19 @@
 
 ### `GET /api/repositories/:id/solutions`
 
-列出仓库目录下所有 Visual Studio 解决方案文件（`*.sln`），**与 Git 状态无关**——直接扫描文件系统，包括未发生改动、已提交的文件。扫描时跳过 `.git` 目录，限制深度与文件数量以防超大仓库卡死，返回相对仓库根目录的 POSIX 路径。
+列出仓库**根目录第一层**的 Visual Studio 解决方案文件（`*.sln`），**与 Git 状态无关**——只读取一次目录，包括未发生改动、已提交的文件。**不递归子目录**（也不进入 `.git`），避免遍历大仓库目录树拖慢刷新；返回文件名。
 
-前端的 `.sln` 模式会对**所有已添加仓库**并发调用本接口并缓存结果，因此解决方案列表不局限于当前选中的仓库；重新扫描会清缓存后重新请求。
+前端的 `.sln` 模式会对**所有已添加仓库**并发调用本接口并缓存结果，因此解决方案列表不局限于当前选中的仓库；重新扫描会清缓存后重新请求。子目录中的解决方案不会列出。
 
 ```json
-{ "solutions": ["App.sln", "src/sub/Lib.sln"] }
+{ "solutions": ["App.sln", "Zoo.sln"] }
 ```
 
 ## Diff
 
 ### `GET /api/repositories/:id/diff?path=src/a.js&staged=0`
 
-返回纯文本补丁。
+返回纯文本补丁（`git diff` 原文）。行内变动高亮由前端 `renderDiff()` 解析后渲染，本接口不返回解析后的结构。
 
 - `staged=1`：索引与 HEAD 比较。
 - `staged=0`：工作区与索引比较。
@@ -340,7 +340,7 @@
 | `createBranchAt` | `{ "name", "base", "switchTo" }` | 在指定提交/引用处创建分支；`switchTo=true` 时创建后立即切换 |
 | `createTagAt` | `{ "name", "base", "message" }` | 在指定提交/引用处创建标签；有 `message` 时创建附注标签 |
 | `pushRef` | `{ "ref" }` | 把引用对应的本地分支/标签推送到远端 |
-| `deleteRef` | `{ "ref", "force" }` | 删除本地分支、标签或远端分支（远端通过 `git push --delete`） |
+| `deleteRef` | `{ "ref", "force" }` | 删除本地分支、标签或远端分支（远端通过 `git push --delete`）；`force=true` 时本地分支用 `git branch -D` 强制删除未合并分支，默认 `-d` |
 
 以上引用级动作的 `ref`、`base`、`hash`、`name` 都先经过 `validateRefArgument()` / `validateRevision()` / `validateCommitHash()` 校验，参数作为独立 argv 传给 Git，不接受任意 Git 参数。
 
@@ -363,6 +363,7 @@
 
 - 本地分支使用 `git branch -d` 安全删除。
 - `forceDelete=true` 时使用 `git branch -D`，会丢失未合并提交。
+- 提交历史徽标右键的 `deleteRef` 同理：`force=true` 时用 `git branch -D`，勾选框默认关闭。
 - 只有对应本地分支成功删除后，才处理远程分支。
 - 远程目标来自本地分支上游或匹配的远程跟踪引用。
 - 同一远端的远程分支合并为一次 push。
@@ -380,3 +381,6 @@
 | 413 | 文件过大 |
 | 415 | 二进制文件不能进入编辑器 |
 | 422 | Git 命令执行失败 |
+| 423 | `.git/index.lock` 仍被其他进程占用，或无法安全确认锁状态：动作未执行，锁文件未删除 |
+
+`POST /api/repositories/:id/action` 的 423 响应中，`error` 为多行中文文本：占用判据、可能持有锁的进程清单（进程名 / PID / 命令行，最多 10 条）、处理建议与 Git 原始错误。前端的多行 toast 会完整展示。若锁无人持有，后端会先删除陈旧锁并自动重试一次，动作正常返回 200，`output` 首行说明刚刚做过清理。

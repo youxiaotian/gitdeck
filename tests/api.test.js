@@ -656,6 +656,39 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     false
   );
 
+  // 提交历史徽标右键「删除引用」：不勾 -D 会被 Git 拒绝，带 force 才能删掉未合并分支。
+  runGit(repositoryPath, ["switch", "-c", "unmerged-ref"]);
+  await fs.writeFile(
+    path.join(repositoryPath, "unmerged-ref.txt"),
+    "unmerged ref commit\n",
+    "utf8"
+  );
+  runGit(repositoryPath, ["add", "unmerged-ref.txt"]);
+  runGit(repositoryPath, ["commit", "-m", "Unmerged ref commit"]);
+  runGit(repositoryPath, ["switch", "main"]);
+  await assert.rejects(
+    () =>
+      callApi(baseUrl, token, `/api/repositories/${repository.id}/action`, {
+        method: "POST",
+        body: { action: "deleteRef", ref: "unmerged-ref" }
+      }),
+    /not fully merged/
+  );
+  assert.match(
+    runGit(repositoryPath, ["branch", "--list", "unmerged-ref"]),
+    /unmerged-ref/,
+    "未勾选 -D 时未合并分支应仍然存在"
+  );
+  await callApi(baseUrl, token, `/api/repositories/${repository.id}/action`, {
+    method: "POST",
+    body: { action: "deleteRef", ref: "unmerged-ref", force: true }
+  });
+  assert.doesNotMatch(
+    runGit(repositoryPath, ["branch", "--list", "unmerged-ref"]),
+    /unmerged-ref/,
+    "force=true 后未合并分支应被真正删除"
+  );
+
   runGit(repositoryPath, ["branch", "batch-a"]);
   runGit(repositoryPath, ["branch", "batch-b"]);
   runGit(repositoryPath, ["push", "-u", "origin", "batch-a", "batch-b"]);
@@ -774,7 +807,8 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     "摘除归属后剩余工作区的排序值必须有效"
   );
 
-  // 解决方案接口与 git 状态无关：未提交、未跟踪的 .sln 也必须列出来。
+  // 解决方案接口与 git 状态无关：未提交、未跟踪的 .sln 也必须列出来；
+  // 但只扫描仓库根目录第一层，子目录不再递归（避免大仓库刷新卡顿）。
   await fs.mkdir(path.join(repositoryPath, "nested"), { recursive: true });
   await fs.writeFile(path.join(repositoryPath, "App.sln"), "");
   await fs.writeFile(path.join(repositoryPath, "nested", "Lib.sln"), "");
@@ -785,8 +819,8 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
   );
   assert.deepEqual(
     solutionListing.solutions.sort(),
-    ["App.sln", "nested/Lib.sln"].sort(),
-    "solutions 接口应直接扫描目录，返回根目录与子目录下的 .sln"
+    ["App.sln"],
+    "solutions 接口只返回仓库根目录第一层的 .sln，不递归子目录"
   );
 
   // 提交历史分支标签右键菜单：差异接口 + 引用级动作。

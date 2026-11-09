@@ -8,7 +8,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { MAX_DIFF_BYTES } = require("./config");
 const { httpError } = require("./http");
-const { gitAction, runGit } = require("./process");
+const { gitAction, runGit, consumeRecoveryNotes } = require("./process");
 const { acquireRepositoryLock } = require("./locks");
 const {
   validateRepositoryPath,
@@ -189,6 +189,15 @@ async function runRepositoryAction(repository, body) {
         break;
       default:
         throw httpError(400, "不支持的 Git 操作。");
+    }
+
+    // 把「自动清理陈旧 index.lock」这类恢复说明汇总进本次动作结果，
+    // 让用户知道刚才为什么没有报错。已被单条命令带上的说明不重复。
+    const notes = consumeRecoveryNotes(repository.path).filter(
+      (note) => !output.includes(note)
+    );
+    if (notes.length) {
+      output = [...notes, output].filter(Boolean).join("\n");
     }
 
     const detail = await getRepositoryDetail(repository);

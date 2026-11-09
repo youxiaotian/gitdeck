@@ -61,7 +61,7 @@
 **用户行为**
 
 - 显示当前工作区中每个仓库的分支、文件改动数、领先/落后和最近提交。
-- 打开应用时读取一次状态；之后不做任何后台自动刷新，只在用户点「刷新」或执行 Git 动作后更新。避免持续 `git status` 与用户正在操作的 TortoiseGit / IDE 抢同一个 `.git`。
+- 打开应用时读取一次状态；之后不做任何后台自动刷新，只在用户点顶栏「抓取全部」或执行 Git 动作后更新。避免持续 `git status` 与用户正在操作的 TortoiseGit / IDE 抢同一个 `.git`。
 
 **实现位置**
 
@@ -77,12 +77,13 @@
 - 变更文件按真实目录层级显示。
 - 可在文件夹树视图和带完整路径的平铺列表之间切换。
 - 支持全部、未暂存、已暂存、未跟踪筛选。
-- 文件列表工具区的 `.sln` 按钮开启后进入「解决方案」模式：与 Git 状态完全无关，**一次汇总所有已添加仓库**里递归找到的全部 `.sln`（含未发生改动、已提交、子目录中的文件），文件列表变成带仓库名的快捷列表；状态筛选条与批量暂存勾选隐藏。关闭后恢复普通 Git 变更视图。
+- 文件列表工具区的 `.sln` 按钮开启后进入「解决方案」模式：与 Git 状态完全无关，**一次汇总所有已添加仓库根目录第一层**的 `.sln`（含未发生改动、已提交的文件；**不递归子目录**，避免大仓库刷新卡顿），文件列表变成带仓库名的快捷列表；状态筛选条与批量暂存勾选隐藏。关闭后恢复普通 Git 变更视图。
 - 列表顶部提供搜索框（按仓库名/路径过滤）、「全部仓库 / 当前仓库」范围切换与「重新扫描」。扫描结果按仓库缓存在内存：切换仓库、搜索、切范围都不会重复读磁盘；切换仓库也不会关闭该模式，只更新「当前仓库」标记。
 - 单击选中后右侧预览显示仓库与相对路径；**双击列表项**或点击「用 Visual Studio 打开」会按该解决方案所属的仓库直接打开，不必先切换仓库。
 - 双击链路专门防「点了没反应」：单击只增量切换选中态（**不重建列表 DOM**，否则浏览器不会把它判定为同一元素连续两次点击，`dblclick` 根本不派发）；真实双击由 `dblclick` 与第二次 `click(detail=2)` 双通道触发并短时去重。打开前即时提示「正在启动 Visual Studio」，失败明确报错；打开请求不进入通用 Git 动作队列，避免被其它仓库操作的 busy 锁静默丢弃或触发整页重渲染。
 - 空态不再把「当前仓库没有」误报成「目录下没有 .sln 文件」：区分「没有匹配结果」（一键清空筛选）与「所有仓库都没扫到 .sln」（重新扫描）；接口失败显示明确原因，旧服务缺少接口时提示重新运行 `start.cmd`。
 - 点击文件立即显示 Diff。
+- Diff 行内变动对齐 TortoiseGitMerge 的 inline diff：默认 **word-wise（按整词）**，把行切成标识符 / 数字 / 汉字串 / 空白 / 标点后做词级 LCS，改一个字符时整个词一起高亮，不拆成一堆零碎字符。配对的修改行未变部分改用中性的 modified 底色，只有变化片段用删除侧深红、新增侧深绿，不会在整行红/绿底上再叠一层深色。变更块里的 `-` / `+` 行按顺序配对（对应乌龟两栏里同一行的左右两侧），相似度太低、整行重写、超过 3000 字符的行或超大变更块退回行级着色。主预览区与提交改动 Diff 弹窗共用同一渲染。
 - 状态徽标使用颜色区分：新增/未跟踪绿色，删除红色，修改/重命名蓝色。
 
 **实现位置**
@@ -94,10 +95,10 @@
 - `renderSolutionView()`（独立视图）、`renderSolutionList()`、`renderSolutionPreview()`（只重建右侧预览）、`updateSolutionToolbar()`、`toSolutionEntry()`、`resolveFileEntry()`
 - `selectSolutionItem()`（增量选中）、`requestOpenSolution()`（双击双通道 + 去重）、`isSolutionFile()`、`openInVisualStudio(target)`（独立发动作请求并自行反馈，支持带 `repositoryId` 的跨仓库条目；`dblclick` 监听 + 预览区 `openSolution` 动作）
 - DOM：`#solutionToolbar`、`#solutionSearchInput`、`[data-solution-scope]`、`[data-solution-rescan]`、`[data-solution-select]`、`[data-solution-key]`、`[data-solution-clear-filters]`
-- 后端未改动：`directories.listSolutions()`（递归扫描仓库目录、跳过 `.git`、返回相对路径）、`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）、路由 `GET /api/repositories/:id/solutions`
+- 后端：`directories.listSolutions()`（只读仓库根目录第一层、不递归子目录、返回文件名）、`shell.openVisualStudio()`（用 `vswhere.exe` 定位 `devenv.exe`，回退常见版本目录）、`git-actions` 的 `openVisualStudio` 动作（经 `validateRepositoryPath` 校验路径在仓库内）、路由 `GET /api/repositories/:id/solutions`
 - `fileStatus()`
-- `getPreviewKey()`、`loadFilePreview()`、`renderDiff()`
-- CSS：`.file-status.added`、`.deleted`、`.modified`、`.conflict`、`solution-filter-toggle`、`.solution-file`、`.solution-open-button`
+- `getPreviewKey()`、`loadFilePreview()`、`renderDiff()`、`diffLineKind()`、`buildInlineMarks()`、`tokenizeDiffLine()`、`inlineDiffSegments()`、`diffLineSimilarity()`、`diffTokens()`
+- CSS：`.file-status.added`、`.deleted`、`.modified`、`.conflict`、`solution-filter-toggle`、`.solution-file`、`.solution-open-button`、`.diff-marker`、`.diff-inline-del`、`.diff-inline-add`
 
 ## 内联编辑
 
@@ -130,6 +131,16 @@
 - 服务端动作：`stageFiles`、`discardFiles`、`commitSelected`
 - `stagePaths()` 和 `commitSelected()` 使用 NUL 分隔的 pathspec 输入，规避 Windows 命令行长度限制。
 - `commitSelected()` 使用 `git commit --only`，不会提交其他已暂存文件。
+
+## 索引锁冲突的默认处理
+
+- 提交 / 暂存撞上 `Unable to create '.../.git/index.lock': File exists.` 时不再只抛英文原文。
+- `src/index-lock.js` **只在用户主动触发的 git 命令失败时介入**，不注册任何后台巡检（后台碰仓库会与 TortoiseGit / IDE 抢 `.git`）。判据是 Windows 独占打开（`FileShare.None`）：
+  - **无人持有（陈旧锁）**：只删除 Git 目录内的 `.git/index.lock`，自动重试该命令一次；动作结果追加「已自动删除并重试成功」，`data/server.log` 留下 `[index-lock]` 记录。
+  - **仍有进程持有（活锁）**：绝不删除，返回 HTTP 423，错误提示里列出可能占用的进程（名称、PID、命令行；命令行包含该仓库路径的优先），并附占用判据与 Git 原始错误。
+  - **探测失败 / 锁不在 Git 目录内 / 无法确定 Git 目录**：一律保守不删，给出中文手动处理引导；工作树里被跟踪的同名 `index.lock` 文件永不被删。
+- `.git` 是文件（worktree / submodule）时会按 `gitdir:` 解析真实 Git 目录。
+- 多行错误详情在 toast 里完整展开：保留换行、可滚动、停留 20 秒，不会被默认 3 行截断。
 
 ## 分支管理
 
@@ -185,12 +196,14 @@
 - 菜单首项高亮「切换到 "xxx"」，可快速切到该引用。远端分支会在本地创建同名跟踪分支，`origin/HEAD` 解析为它指向的远端分支，标签进入分离 HEAD；当前检出分支该项禁用。
 - 同一菜单还支持：合并到当前分支、在此版本创建分支/标签、检出此提交、推送引用、删除引用、显示此提交的改动、与工作区/上一版本比较、复制引用名与提交哈希、浏览仓库、用 TortoiseGit 打开日志。
 - 合并、检出、推送、删除引用等会改写仓库或远端的操作都有确认弹窗，危险项使用红色样式。
+- 「删除引用」对未合并的本地分支默认走 `git branch -d`，会被 Git 拒绝（提示 `not fully merged`）；确认框里显式提供「强制删除未合并分支（-D）」勾选，默认关闭。删除失败时确认框保持打开，勾选后可直接重试。
 - 菜单较长时可内部滚动，页面滚动 / 点击别处 / Escape / 窗口缩放仍会关闭菜单。
 
 **实现位置**
 
 - 前端：`showContextMenu()`（仓库行与徽标菜单共用渲染与位置钳制）、`openRepoMenu()`、`openRefMenu()`、`historyRowContext()`、`handleContextMenuClick()`、`handleRepoMenuAction()`、`handleHistoryMenuAction()`、`openCreateRefAtModal()`、`createHistoryRefFromModal()`、`openCommitChanges()`、`copyText()`、`hideContextMenu()`；上下文存 `state.menuContext`。
 - DOM：历史行 `data-commit-hash`，徽标 `data-ref` / `data-ref-full` / `data-ref-kind`；`#contextMenu` 的 `.context-menu-wide` 变体与 `[data-menu-action]`。
+- 删除引用确认框：`#forceDeleteRef`（默认不勾选）；`handleHistoryMenuAction("delete-ref")` 把勾选状态作为 `force` 传给 `deleteRef`，后端按 `force ? "-D" : "-d"` 选择本地分支删除方式。
 - 后端：`GET /api/repositories/:id/commit?hash=&compare=`（`getCommitChanges()`）；`src/git-actions.js` 的 `checkoutRef`、`checkoutCommit`、`createBranchAt`、`createTagAt`、`pushRef`、`deleteRef` 及引用/哈希校验。
 
 ## Stash
@@ -212,6 +225,7 @@
 
 - 单仓库抓取、快进拉取、推送。
 - 多选仓库后批量抓取、拉取、推送。
+- 顶栏「抓取全部」对**所有已添加仓库**执行 `git fetch --all --prune`：4 个一批限流，按钮显示「抓取中 N/M」，抓完刷新状态并汇总成功/失败数；部分仓库失败会单独提示，不影响其它仓库。原「刷新」按钮只并发读本地 `git status`、不碰远端，用户觉得没用，故改成抓取入口。
 - **全部由用户主动触发，服务端没有任何定时抓取**。需要最新的 `origin/*` 时自己点抓取 / 拉取；GitDeck 不会在你使用 TortoiseGit / IDE 时后台碰仓库。此前做过定时后台 fetch，因与用户 GUI 操作撞车已整体移除，不再保留开关或「让路」策略。
 
 **实现位置**

@@ -41,7 +41,8 @@
 | 未跟踪文件补丁 | `src/paths.js` | `createUntrackedPatch()` |
 | 目录扫描 | `src/directories.js` | `discoverRepositories()` |
 | 目录浏览器 | `src/directories.js` | `listDirectories()`、`findExistingDirectory()`、`listSystemRoots()`、`listQuickPaths()` |
-| 子进程封装 | `src/process.js` | `runProcess()`、`runGit()`、`gitAction()`、`toGitPath()` |
+| 子进程封装 / 锁冲突重试 | `src/process.js` | `runProcess()`、`runGit()`（失败后 `recoverIndexLock()` + 只重试一次）、`gitAction()`、`toGitPath()`、`consumeRecoveryNotes()` |
+| 陈旧索引锁处理 | `src/index-lock.js` | `isIndexLockError()`、`resolveGitDir()`、`probeIndexLock()`（Windows `FileShare.None` 独占探测 + 占用进程清单）、`recoverIndexLock()`、`formatIndexLockHeldError()` |
 | 单仓库动作锁 | `src/locks.js` | `acquireRepositoryLock()` |
 | 资源管理器/终端/TortoiseGit | `src/shell.js` | `openExplorer()`、`openTerminal()`、`openTortoiseGit()` |
 | 桌面壳：app 窗口与单实例 | `src/desktop.js` | `launchAppWindow()`、`probeInstance()`、`createHeartbeatWatchdog()`、`startHeartbeatWatchdog()`、`stopHeartbeatWatchdog()`、`touchHeartbeat()`、`loadWindowSize()`、`saveWindowSize()`、`findBrowser()` |
@@ -61,9 +62,9 @@
 | 工作区下拉 | `renderWorkspacePicker()`、`openWorkspaceDropdown()`、`closeWorkspaceDropdown()` |
 | 主面板/仓库视图 | `renderMain()`、`renderRepositoryView()` |
 | 变更文件树/平铺 | `renderChanges()`、`renderFileTree()`、`renderTreeNode()`、`renderFlatFileList()`、`updateFileViewToggle()`、`getVisibleEntries()` |
-| .sln 解决方案快捷列表 | 与 Git 无关：按钮开启后 `fetchSolutions()` 并发调所有仓库的 `GET /api/repositories/:id/solutions` 并缓存在 `state.solutionCache`，`buildSolutionCatalog()` 汇总为带仓库名的目录；`getVisibleSolutions()` 按 `solutionScope` / `solutionSearch` 过滤，`renderSolutionView()` + `renderSolutionList()` 独立渲染，`updateSolutionToolbar()` 同步搜索/范围/重新扫描；`renderSolutionPreview()` 只重建右侧预览，`selectSolutionItem()` 单击时仅增量切 `.selected`（**不重建列表 DOM，否则浏览器不派发 `dblclick`**），`requestOpenSolution()` 汇总 `dblclick` 与 `click(detail>=2)` 并短时去重；双击 `[data-solution-key]` 或预览区 `openSolution` 调 `openInVisualStudio(target)`，独立发动作请求、自带即时/成功/失败反馈，不走 `performRepoAction()` 的 busy 队列，并带上条目所属 `repositoryId`。切换仓库不关闭模式（`refreshSolutionCurrentFlag()`）。后端不变：`directories.listSolutions()`、`shell.openVisualStudio()`、`openVisualStudio` 动作 |
+| .sln 解决方案快捷列表 | 与 Git 无关：按钮开启后 `fetchSolutions()` 并发调所有仓库的 `GET /api/repositories/:id/solutions` 并缓存在 `state.solutionCache`，`buildSolutionCatalog()` 汇总为带仓库名的目录；`getVisibleSolutions()` 按 `solutionScope` / `solutionSearch` 过滤，`renderSolutionView()` + `renderSolutionList()` 独立渲染，`updateSolutionToolbar()` 同步搜索/范围/重新扫描；`renderSolutionPreview()` 只重建右侧预览，`selectSolutionItem()` 单击时仅增量切 `.selected`（**不重建列表 DOM，否则浏览器不派发 `dblclick`**），`requestOpenSolution()` 汇总 `dblclick` 与 `click(detail>=2)` 并短时去重；双击 `[data-solution-key]` 或预览区 `openSolution` 调 `openInVisualStudio(target)`，独立发动作请求、自带即时/成功/失败反馈，不走 `performRepoAction()` 的 busy 队列，并带上条目所属 `repositoryId`。切换仓库不关闭模式（`refreshSolutionCurrentFlag()`）。后端：`directories.listSolutions()`（只读仓库根目录第一层，不递归子目录）、`shell.openVisualStudio()`、`openVisualStudio` 动作 |
 | 文件状态 | `fileStatus()`、`collectChangedEntries()` |
-| Diff/编辑器 | `loadFilePreview()`、`renderPreviewHeader()`、`renderEditor()`、`saveEditor()`、`revertEditorChanges()` |
+| Diff/编辑器 | `loadFilePreview()`、`renderPreviewHeader()`、`renderEditor()`、`saveEditor()`、`revertEditorChanges()`；`renderDiff()`（word-wise 行内高亮：`diffLineKind()`、`buildInlineMarks()`、`tokenizeDiffLine()`、`inlineDiffSegments()`、`diffLineSimilarity()`、`diffTokens()`） |
 | 选中提交 | `updateComposerState()`、`submitCommit()` |
 | 批量暂存/还原 | `requestBatchStage()`、`requestBatchDiscard()`、`performBatchDiscard()` |
 | 右侧提交历史 | `ensureContextHistory()`、`renderContextHistory()`、`renderHistoryGraph()`、`renderHistoryDecorations()` |

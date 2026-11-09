@@ -4391,6 +4391,39 @@ body.modal-open {
   font-weight: 700;
 }
 
+/* 行内变动（TortoiseGitMerge 语义）：配对的修改行未变部分用中性的
+   modified 底色，只有真正变化的「整词」用 inline added / removed 上色。
+   这样不会在整行红/绿底上再叠一层深色，一眼能看出改了哪儿。 */
+.diff-line.added.inline,
+.diff-line.removed.inline {
+  background: rgba(122, 138, 168, 0.2);
+  color: #d9e2dd;
+}
+
+.diff-marker {
+  opacity: 0.7;
+}
+
+.diff-inline-del,
+.diff-inline-add {
+  padding: 1px 0;
+  border-radius: 2px;
+  color: inherit;
+  font-weight: 700;
+}
+
+.diff-inline-del {
+  background: rgba(214, 76, 60, 0.66);
+  box-shadow: 0 0 0 1px rgba(255, 145, 128, 0.5);
+  color: #fff0ed;
+}
+
+.diff-inline-add {
+  background: rgba(46, 168, 105, 0.68);
+  box-shadow: 0 0 0 1px rgba(110, 232, 168, 0.5);
+  color: #e8fff1;
+}
+
 .confirm-copy {
   margin: 0;
   color: var(--ink-soft);
@@ -4504,6 +4537,21 @@ body.modal-open {
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+/* 多行错误详情：保留换行、允许滚动，避免占用进程清单只显示开头三行。 */
+.toast-region:has(.toast.has-detail) {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.toast.has-detail .toast-message {
+  display: block;
+  max-height: 46vh;
+  overflow-y: auto;
+  font-size: 10px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: unset;
 }
 
 .toast button {

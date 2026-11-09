@@ -2,6 +2,69 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-09 - index.lock 冲突增加默认处理：陈旧锁自动清理，活锁报出占用进程
+
+- 用户反馈：提交时报 `index.lock` / `File exists` 删不掉；上一轮只读取证确认是旧版后台动作被强杀后留下的 3 天陈旧锁（0 字节、无人持有）。用户要求把「无人持有就删掉、有人持有就打印是谁」做成默认逻辑。
+- 新增 `src/index-lock.js`（仅 Windows 独占探测）：从 Git 报错识别锁冲突 → 解析真实 Git 目录（含 `.git` 文件的 `gitdir:`）→ 用 PowerShell `-EncodedCommand` 以 `FileShare.None` 独占打开锁文件，路径走环境变量避免注入。
+  - 独占打开成功（无人持有）→ 删除 Git 目录内的陈旧锁、写 `[index-lock]` 日志、返回恢复说明；
+  - 独占打开失败（仍有进程持有）→ 绝不删除，抛 423，列出可能占用的进程（名称 / PID / 命令行，按仓库路径匹配优先）+ 占用判据 + Git 原始错误；
+  - 探测失败、无法确定 Git 目录、或锁在工作树里 → 一律保守不删。
+- `src/process.js` 的 `runGit()` 在失败时接入恢复，**只自动重试一次**；`gitAction()` 与 `runRepositoryAction()`（经 `consumeRecoveryNotes()`）把恢复说明汇总进动作结果，用户能看到「已自动删除并重试成功」且不重复。
+- `public/app.js` / `styles.css`：含换行的错误 toast 加 `.has-detail`，保留换行、可滚动、停留 20 秒、容器加宽，避免进程清单被 3 行截断或 5 秒消失。
+- **边界**：没有后台巡检、没有定时器，只在用户主动触发的 Git 命令失败时介入；与「禁止后台自动操作用户仓库」的约定一致。
+- 验证：新增 `tests/index-lock.test.js`（7 项，含真实 Git 仓库的陈旧锁 / 活锁 / `commitSelected` 端到端）；`node --test` 全通过，文档校验通过。**`src/` 是后端代码，需重新运行 `.\start.cmd` 才生效；前端 toast 改动按 F5 即可。**
+
+## 2026-11-09 - 顶栏「刷新」改为「抓取全部」
+
+- 用户反馈：顶栏「刷新」按钮「好像没啥用」，要求改为抓取所有仓库。
+- 根因：该按钮只调 `refreshAllSummaries({ force: true })`，并发读一遍 `GET /api/repositories/:id/status`（纯本地 `git status`），完全不碰远端，所以看不到任何 `origin/*` 变化。
+- 改动（纯前端，F5 生效）：
+  - `public/index.html` 按钮文案改「抓取全部」、图标改 `#i-download`、title 标明 `git fetch --all --prune`。
+  - `public/app.js` 新增 `fetchAllRepositories()`，顶部按钮 click 绑定它：对 `state.repositories` **全部**仓库调用 `executeBulkAction("fetch", ids)`，按钮期间禁用并显示「抓取中 N/M」。
+  - `executeBulkAction()` 由一次性 `Promise.allSettled(ids.map(...))` 改成 **4 个一批**串行批次 + `onProgress` 回调；每批更新 summary、重绘列表，结束汇总成功/失败并刷新当前仓库详情。避免一次拉起 24 个 git 进程与 TortoiseGit / IDE 抢 `.git`。
+  - **关键约束**：`refreshAllSummaries()` 本身没动，首次加载 / 窗口恢复 / Git 动作后的状态刷新仍是纯本地读取，没有任何后台抓取；抓取只在用户点击时发生。新增防回归断言检查这条边界和 `index += 4` 限流。
+- 验证：`node --test` 42/42、`check-docs` 23 份、`node --check`。文档 FEATURES / ARCHITECTURE / UI-MAP 同步。
+
+## 2026-11-09 - 行内 diff 改为 TortoiseGitMerge 的 word-wise 算法
+
+- 用户反馈：上一版「效果还是不对」，要求先查乌龟的单文件单行 diff 算法再改代码。
+- 查证（TortoiseGitMerge 官方手册）：inline diff 默认 **word-wise**——「改一个字符时整个词高亮」，char-wise 会把变量名改动拆成「一堆没意义的零碎字符」；只有「改动相对小」的行算 modified line，**未变部分用中性的 modified 背景，变化片段才用 inline added / removed 颜色**；超过 3000 字符的行不做行内差异。
+- 上一版的三个偏差：① 逐字符 LCS（正是乌龟默认不用的 char-wise）；② 在整行红/绿底上再叠一层深红/深绿，对比度糊在一起，看不出哪儿变了；③ 单行 600 字符 / 160000 格上限，稍长的代码行直接退回整行着色，等于没效果。
+- 实现（`public/app.js`、`public/styles.css`，纯前端 F5 生效）：
+  - `tokenizeDiffLine()` 按标识符 / 数字 / 连续汉字 / 空白 / 单标点分词；`inlineDiffSegments()` 先剥相同首尾词，再对词序列做 LCS，连续同状态的词合并成一段，整词高亮。
+  - `buildInlineMarks()` 由「全局找最相似」改为**按块内位置顺序配对**（对应两栏里同一行的左右两侧），相似度 < 0.3 或公共词太少直接退回行级着色。
+  - 有片段的行加 `.inline` class，CSS 用中性 modified 底色覆盖整行红/绿，`<mark>` 用更饱和的红/绿只标变化片段。
+  - 上限对齐乌龟：单行 3000 字符、400 词、40000 DP 格；单块 80 行、200 配对仍保留。
+- 验证：真实源码行为测试改为断言「整词高亮」「汉字成一个词」「配对行有 `.inline`」；`node --test` 42/42、`check-docs` 23 份、`node --check` 通过。
+- 仍未做（等用户确认）：左右并排双栏视图；提交改动弹窗 `pre.commit-patch` 仍是纯文本。
+
+## 2026-11-09 - Diff 增加行内变动高亮（初版，已被上面的 word-wise 版本替换）
+
+- 用户反馈：截图参考 TortoiseGit 的行内差异效果，「某一行有变动，看起来容易看不懂是哪儿变化了」。
+- 现状：`renderDiff()` 把 `git diff` 文本按行包成 `.diff-line.added/removed`，整行同色，行内改动位置不可见；后端 `GET diff` 返回原始补丁文本，未做解析。
+- 取舍：**只增强行内粒度，不改布局、不加并排视图开关、不动后端**；保持现有统一视图与操作习惯，纯前端改动 F5 即生效（不用重启 `start.cmd`）。
+- 实现（`public/app.js`）：
+  - `diffLineKind()` 统一分类（header / hunk / added / removed / context），补齐 `similarity index` / `rename` / `Binary files` / mode 等 header。
+  - `buildInlineMarks()` 在每个 hunk 内把连续的 `-` / `+` 行划为变更块，用 `diffLineSimilarity()`（token 集合重合度）把新增行与最相似的删除行贪心配对，能处理「一行拆两行 / 顺序微调」。
+  - `charDiffSegments()` 对配对行做字符级 LCS，生成 `{ text, changed }` 片段；公共字符比例 < 0.3（整行重写）时返回 null，退回整行着色。
+  - `renderDiff()` 对有片段的行把 `+` / `-` 前缀单独包 `.diff-marker`，变化片段包 `<mark class="diff-inline-del|add">`，其余 `escapeHtml()` 原样输出；上下文行、header、hunk 不标亮。
+  - 规模保护：单行 ≤ 600 字符、LCS ≤ 160000 格、单块 ≤ 80 行、全局 ≤ 200 配对，超出退回行级着色，避免大 diff 卡顿。
+- 样式（`public/styles.css`）：`.diff-inline-del` 深红、`.diff-inline-add` 深绿，叠加在原有浅色行背景上；`<mark>` 默认底色被覆盖，深色主题下可读。
+- 验证：`tests/project-files.test.js` 新增两组**真实源码行为测试**——用 `new Function` 加载 `app.js` 里的纯渲染函数（只注入等价 `escapeHtml`），断言 `MD5 → SHA` 只标变化片段、上下文行无 mark、两处入口共用 `renderDiff`、HTML 转义安全、整行重写 / 超长行 / 超大块退回行级；`node --test` 全量、`check-docs`、`node --check`。
+- 未做（等用户确认）：截图里的左右并排双栏视图；提交改动弹窗 `pre.commit-patch` 仍是纯文本，未接行内高亮。
+
+## 2026-11-09 - 修掉「分支删不掉」，并让 .sln 只扫根目录第一层
+
+- 用户反馈：右键删除 `remove-app-related` 一直失败，报 `The branch '...' is not fully merged`；同时 `.sln` 目录刷新很慢，要求「不要递归扫描，只要扫描目录下的第一层的 .sln 文件」。
+- 删除引用根因：后端 `deleteRef(path, ref, force)` 本来就支持 `force ? "-D" : "-d"`，但分支标签右键「删除引用」的确认框只发 `{ ref }`，永远走安全的 `git branch -d`，Git 对未合并分支直接拒绝。项目里「强制删除未合并分支（-D）」选项此前只做在批量删除弹窗，右键路径漏了。
+- 改动（前端）：`delete-ref` 确认框用 `bodyExtra` 补上 `#forceDeleteRef`（默认不勾选，复用 `.branch-force-option` 样式），确认时读取勾选状态并把 `force` 传给 `deleteRef`；`not fully merged` 失败时把原始英文报错换成中文引导并聚焦勾选框。`runModalConfirmation()` 在动作抛错时不会 `closeModal()`，弹窗保持打开，勾选后可直接重试，无需重新右键。
+- 扫描慢根因：`listSolutions()` 用 `walk()` 递归到 8 层、上限 2 万个目录，`.sln` 模式还会并发对所有已添加仓库各跑一遍。
+- 改动（后端 + 前端文案）：`listSolutions()` 改为只 `readdir(repository.path)` 一次，收集第一层 `*.sln` 文件名，删除 `walk` / `MAX_DEPTH` / `MAX_ENTRIES` / `MAX_SOLUTIONS`；列表头与空态标明「仅仓库根目录第一层」，重新扫描按钮说明同步。范围/搜索/缓存逻辑不变。
+- 实测（`AgisoCodes.Work` 真实目录）：旧递归 16 个 / **2010ms**，新第一层 14 个 / **7ms**（子目录里的 2 个不再列出）；全部 24 个仓库新实现合计 **3ms**、共 47 个第一层 `.sln`。
+- 验证：`node --test` 40/40、`node tools/check-docs.js` 23 份通过、`node --check`；`tests/api.test.js` 新增端到端用例（不勾 `-D` 被拒且分支仍在 → `force: true` 后分支真的消失），并改为断言子目录 `nested/Lib.sln` 不返回；`tests/project-files.test.js` 增加「不得递归」「必须 `isFile()`」「`deleteRef` 必须带 `force`」「强制删除默认关闭」防回归断言。
+- 文档同步：`API.md`、`FEATURES.md`、`MAP.md`、`UI-MAP.md`、`TESTING.md`、`SECURITY.md`、`TROUBLESHOOTING.md`、本文件。
+- 注意：`src/directories.js` 是后端代码，F5 只刷新 `public/`；**需要重新运行 `.\start.cmd`**（或关掉窗口再打开）才能加载新的扫描逻辑。
+
 ## 2026-11-09 - 修掉 .sln 列表「双击打开没反应」
 
 - 用户反馈：列表能列出 16 个 `.sln`，但双击完全没反应。**先排除后端**：拦截 `spawn` 实证 `vswhere.exe` 定位到 `VS2022 Enterprise\Common7\IDE\devenv.exe`、参数是正确的绝对 `.sln` 路径；运行中服务 `POST /action` 的 `openVisualStudio` 分支可达（非法路径按预期返回 400）；`AgisoCodes.Work` 的 `/solutions` 返回 16 个。后端整条链路没问题。

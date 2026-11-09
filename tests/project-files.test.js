@@ -425,6 +425,20 @@ test("文件列表的 .sln 模式汇总所有仓库的解决方案并支持快�
     /endsWith\("\.sln"\)/,
     "listSolutions 只收集 .sln 文件"
   );
+  const solutionSource = directories.slice(
+    directories.indexOf("async function listSolutions"),
+    directories.indexOf("module.exports")
+  );
+  assert.doesNotMatch(
+    solutionSource,
+    /MAX_DEPTH|MAX_ENTRIES|async function walk|walk\(/,
+    "listSolutions 不得递归扫描子目录，只读仓库根目录第一层"
+  );
+  assert.match(
+    solutionSource,
+    /entry\.isFile\(\)/,
+    "只收集根目录下的文件，目录一律不进入"
+  );
 
   // 后端：动作白名单登记 openVisualStudio，并用仓库路径校验防止越界。
   assert.match(
@@ -455,7 +469,7 @@ test("文件列表的 .sln 模式汇总所有仓库的解决方案并支持快�
   assert.match(css, /\.solution-file \.tree-file-open::after/, "普通文件列表里的 .sln 仍应有 VS 标记");
 });
 
-test("listSolutions 直接扫描目录下的 .sln，与 git 状态无关且跳过 .git", async () => {
+test("listSolutions 只扫描根目录第一层的 .sln，与 git 状态无关", async () => {
   const { listSolutions } = require("../src/directories");
   const base = path.join(
     ROOT,
@@ -466,6 +480,8 @@ test("listSolutions 直接扫描目录下的 .sln，与 git 状态无关且跳�
   await fs.mkdir(path.join(base, "src", "sub"), { recursive: true });
   await fs.mkdir(path.join(base, ".git"), { recursive: true });
   await fs.writeFile(path.join(base, "App.sln"), "");
+  await fs.writeFile(path.join(base, "Zoo.sln"), "");
+  // 子目录里的 .sln 不应再被递归扫出来
   await fs.writeFile(path.join(base, "src", "sub", "Lib.sln"), "");
   // .git 内部即便有 .sln 也不应被扫描出来
   await fs.writeFile(path.join(base, ".git", "ignoreme.sln"), "");
@@ -475,9 +491,9 @@ test("listSolutions 直接扫描目录下的 .sln，与 git 状态无关且跳�
   const solutions = await listSolutions({ path: base });
 
   assert.deepEqual(
-    solutions.sort(),
-    ["App.sln", "src/sub/Lib.sln"].sort(),
-    "应返回目录下（含子目录）所有 .sln 的相对路径，排除 .git 与非 .sln 文件"
+    solutions,
+    ["App.sln", "Zoo.sln"],
+    "只返回仓库根目录第一层的 .sln（已排序），不递归子目录、排除 .git 与非 .sln 文件"
   );
 
   await fs.rm(base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
@@ -569,8 +585,33 @@ test("不再有任何后台自动抓取或定时状态刷新", async () => {
   );
   assert.match(
     app,
-    /refreshAllSummaries\(\{ force: true \}\)/,
-    "手动刷新入口必须保留"
+    /refreshAllSummaries\(\{ quiet: true \}\)/,
+    "交互触发的本地状态刷新仍保留"
+  );
+  assert.match(
+    app,
+    /addEventListener\("click"[\s\S]{0,200}fetchAllRepositories\(\)/,
+    "顶部按钮改为抓取所有仓库（仅用户点击）"
+  );
+  assert.match(app, /async function fetchAllRepositories\(\)/);
+  assert.doesNotMatch(
+    app,
+    /addEventListener\("click"[\s\S]{0,200}refreshAllSummaries\(\{ force: true \}\)/,
+    "顶部按钮不再只是本地状态刷新"
+  );
+  const refreshBody = app.slice(
+    app.indexOf("async function refreshAllSummaries"),
+    app.indexOf("async function fetchAllRepositories")
+  );
+  assert.doesNotMatch(
+    refreshBody,
+    /action:\s*"fetch"|method:\s*"POST"/,
+    "自动/被动的状态刷新路径不得发起抓取"
+  );
+  assert.match(
+    app,
+    /index \+= 4/,
+    "批量抓取必须分批限流，不能一次拉起所有仓库的 git 进程"
   );
   const exists = async (...parts) =>
     fs.access(path.join(ROOT, ...parts)).then(
@@ -654,6 +695,21 @@ test("提交历史只有分支/标签徽标支持 TortoiseGit 风格右键菜单
   assert.match(app, /openCreateRefAtModal|create-history-ref/, "创建分支/标签需要表单弹窗");
   assert.doesNotMatch(app, /historyResetMode/, "重置模式表单随提交行菜单一起移除");
   assert.match(app, /danger: true/, "破坏性动作需要危险确认");
+
+  // 删除引用要能删掉未合并分支：确认框显式提供 -D 勾选，并把 force 传给后端。
+  assert.match(app, /id="forceDeleteRef"/, "删除引用确认框要有强制删除 -D 选项");
+  assert.doesNotMatch(
+    app,
+    /id="forceDeleteRef"[^>]*checked/,
+    "强制删除默认关闭，必须用户显式勾选"
+  );
+  assert.match(
+    app,
+    /document\.getElementById\("forceDeleteRef"\)/,
+    "确认时要读取强制删除勾选状态"
+  );
+  assert.match(app, /ref: context\.ref,\s*force/, "deleteRef 动作必须带上 force");
+  assert.match(actions, /force \? "-D" : "-d"/, "后端 force 应切换为 git branch -D");
   assert.match(app, /function copyText\(/, "复制到剪贴板需要兼容非安全上下文的回退");
   assert.match(app, /navigator\.clipboard\?\.writeText/);
 
@@ -671,4 +727,222 @@ test("提交历史只有分支/标签徽标支持 TortoiseGit 风格右键菜单
   assert.match(css, /\.context-menu button\.primary \{/);
   assert.match(css, /\.commit-patch \{/);
   assert.match(app, /elements\.contextMenu\.contains\(event\.target\)/, "菜单内部滚动不能关闭菜单");
+});
+
+// 直接执行 app.js 里的真实渲染函数（而不是只做源码字符串断言）：
+// 行内 diff 是纯函数，只有 escapeHtml 依赖浏览器侧，注入等价实现即可。
+function loadDiffRenderer(appSource) {
+  const start = appSource.indexOf("  const MAX_INLINE_LINE_CHARS = 3000;");
+  const end = appSource.indexOf("  async function handleModalAction(button) {");
+  assert.ok(start > 0 && end > start, "应能从 app.js 提取行内 diff 渲染函数");
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  return new Function(
+    "escapeHtml",
+    `${appSource.slice(
+      start,
+      end
+    )}\nreturn { renderDiff, buildInlineMarks, inlineDiffSegments, tokenizeDiffLine, diffLineKind };`
+  )(escapeHtml);
+}
+
+test("diff 行内变动按 TortoiseGitMerge 的 word-wise 规则标出整词", async () => {
+  const [app, css] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "styles.css"), "utf8")
+  ]);
+  const { renderDiff, inlineDiffSegments, tokenizeDiffLine, diffLineKind } =
+    loadDiffRenderer(app);
+
+  // 不能退回旧实现（整行 escapeHtml 后统一着色），两处入口都要共用新渲染。
+  assert.match(app, /function buildInlineMarks\(lines\)/);
+  assert.match(app, /function tokenizeDiffLine\(text\)/);
+  assert.match(app, /function inlineDiffSegments\(before, after\)/);
+  assert.match(app, /MAX_INLINE_LINE_CHARS = 3000/, "沿用乌龟的长行上限");
+  assert.doesNotMatch(app, /charDiffSegments/, "不再使用逐字符 diff");
+  assert.match(
+    app,
+    /function renderDiff\(diff\)[\s\S]{0,300}buildInlineMarks\(lines\)/,
+    "renderDiff 必须先算行内片段再渲染"
+  );
+  assert.match(
+    app,
+    /elements\.filePreview\.innerHTML = `<pre class="diff-view">\$\{renderDiff\(/,
+    "主预览区要走行内高亮渲染"
+  );
+  assert.match(app, /<pre class="diff-view">\$\{renderDiff\(diff\)\}<\/pre>/, "diff 弹窗也要走行内高亮渲染");
+  assert.match(css, /\.diff-inline-del \{/);
+  assert.match(css, /\.diff-inline-add \{/);
+  assert.match(css, /\.diff-line\.added\.inline/, "配对的修改行改用中性 modified 底色");
+
+  // word-wise：改一个标识符时整个词一起高亮，不拆成一堆零碎字符。
+  const segments = inlineDiffSegments(
+    "const value = createSaltedMD5(input);",
+    "const value = createSaltedSHA(input);"
+  );
+  assert.ok(segments, "相似行应产生片段级差异");
+  const changedLeft = segments.left
+    .filter((segment) => segment.changed)
+    .map((segment) => segment.text)
+    .join("");
+  const changedRight = segments.right
+    .filter((segment) => segment.changed)
+    .map((segment) => segment.text)
+    .join("");
+  assert.equal(changedLeft, "createSaltedMD5", "删除侧整个被替换的词一起高亮");
+  assert.equal(changedRight, "createSaltedSHA", "新增侧整个新词一起高亮");
+  const unchangedLeft = segments.left
+    .filter((segment) => !segment.changed)
+    .map((segment) => segment.text)
+    .join("");
+  assert.match(unchangedLeft, /const value =/);
+  assert.match(unchangedLeft, /\(input\);/);
+  assert.ok(
+    tokenizeDiffLine("let 价格 = 10;").includes("价格"),
+    "连续汉字作为一个词，不按字符拆"
+  );
+
+  const diff = [
+    "diff --git a/app.js b/app.js",
+    "index 1111111..2222222 100644",
+    "--- a/app.js",
+    "+++ b/app.js",
+    "@@ -1,3 +1,3 @@",
+    " const a = 1;",
+    "-const value = createSaltedMD5(input);",
+    "+const value = createSaltedSHA(input);",
+    " const b = 2;"
+  ].join("\n");
+  const html = renderDiff(diff);
+
+  assert.equal(diffLineKind("+++ b/app.js"), "header");
+  assert.equal(diffLineKind("@@ -1,3 +1,3 @@"), "hunk");
+  assert.equal(diffLineKind("+const x"), "added");
+  assert.equal(diffLineKind("-const x"), "removed");
+  assert.equal(diffLineKind(" const x"), "context");
+  assert.match(html, /<span class="diff-line header">/);
+  assert.match(html, /<span class="diff-line hunk">/);
+  assert.match(html, /<span class="diff-line removed/);
+  assert.match(html, /<span class="diff-line added/);
+  assert.match(html, /<span class="diff-marker">-/);
+  assert.match(html, /<span class="diff-marker">\+/);
+
+  const delMarks = [
+    ...html.matchAll(/<mark class="diff-inline-del">([\s\S]*?)<\/mark>/g)
+  ].map((match) => match[1]);
+  const addMarks = [
+    ...html.matchAll(/<mark class="diff-inline-add">([\s\S]*?)<\/mark>/g)
+  ].map((match) => match[1]);
+  assert.ok(delMarks.length && addMarks.length, "删除行与新增行都要有行内标记");
+  assert.ok(delMarks.join("").includes("createSaltedMD5"), "删除侧应标出整个被替换的词");
+  assert.ok(addMarks.join("").includes("createSaltedSHA"), "新增侧应标出整个新词");
+  assert.match(html, /class="diff-line removed inline"/, "删除行标记为 modified 行");
+  assert.match(html, /class="diff-line added inline"/, "新增行标记为 modified 行");
+  assert.match(
+    html,
+    /<span class="diff-line "> const a = 1;<\/span>/,
+    "上下文行保持原样"
+  );
+  assert.ok(
+    !/<span class="diff-line "> [^<]*<mark/.test(html),
+    "上下文行不应被标亮"
+  );
+});
+
+test("行内高亮有规模保护且不会破坏 HTML 转义", async () => {
+  const app = await fs.readFile(path.join(ROOT, "public", "app.js"), "utf8");
+  const { renderDiff, inlineDiffSegments } = loadDiffRenderer(app);
+
+  // 整行重写 / 超长行：退回整行着色，避免零碎色块与 O(n^2) 卡顿。
+  assert.equal(inlineDiffSegments("aaaaaaaaaaaa", "bbbbbbbbbbbb"), null);
+  assert.equal(inlineDiffSegments("a".repeat(700), "b".repeat(700)), null);
+  assert.equal(
+    inlineDiffSegments("x ".repeat(1600), "y ".repeat(1600)),
+    null,
+    "超过 3000 字符的行不做行内差异"
+  );
+
+  const big = ["@@ -1,120 +1,120 @@"];
+  for (let i = 0; i < 100; i += 1) big.push(`-line ${i} old`);
+  for (let i = 0; i < 100; i += 1) big.push(`+line ${i} new`);
+  const bigHtml = renderDiff(big.join("\n"));
+  assert.ok(
+    !bigHtml.includes("<mark"),
+    "超过上限的变更块应退回行级着色，避免大 diff 卡顿"
+  );
+
+  // 代码里的 < > & 必须转义，不能被当成标签注入。
+  const escaped = renderDiff(
+    "@@ -1 +1 @@\n-const ok = a<b && c;\n+const ok = a<b && d;"
+  );
+  assert.ok(!escaped.includes("a<b"), "代码里的 < 必须转义");
+  assert.match(escaped, /a&lt;b &amp;&amp;/);
+  assert.ok(!escaped.includes("<script"), "不得产生可注入的标签");
+});
+
+test("index.lock 默认逻辑：只清理陈旧锁、绝不删活锁、不做后台巡检", async () => {
+  const [indexLock, processModule, gitActions, server, app, css] =
+    await Promise.all(
+      [
+        ["src", "index-lock.js"],
+        ["src", "process.js"],
+        ["src", "git-actions.js"],
+        ["server.js"],
+        ["public", "app.js"],
+        ["public", "styles.css"]
+      ].map((parts) => fs.readFile(path.join(ROOT, ...parts), "utf8"))
+    );
+
+  assert.doesNotMatch(
+    indexLock,
+    /setInterval|setTimeout|schedule|cron/,
+    "锁处理不得注册任何后台巡检任务"
+  );
+  assert.doesNotMatch(
+    server,
+    /require\("\.\/src\/index-lock"\)|recoverIndexLock/,
+    "锁处理只在用户触发的 git 命令里介入，服务启动/常驻路径不得调用"
+  );
+  assert.doesNotMatch(
+    indexLock,
+    /require\("\.\/process"\)/,
+    "避免与 process.js 形成循环依赖"
+  );
+  assert.match(
+    indexLock,
+    /\[System\.IO\.FileShare\]::None/,
+    "必须用独占打开判定是否有进程持有锁"
+  );
+  assert.match(indexLock, /isUnder\(candidate, gitDir\)/, "只处理 git 目录内的锁");
+  assert.ok(
+    indexLock.indexOf("if (probe.held)") < indexLock.indexOf("await fs.unlink("),
+    "删锁之前必须先排除活锁"
+  );
+  assert.match(
+    indexLock,
+    /formatIndexLockHeldError\(rawMessage, probe\)/,
+    "活锁错误必须带上占用进程信息"
+  );
+  assert.match(
+    processModule,
+    /recoverIndexLock\(repositoryPath, message\)/,
+    "runGit 必须接入锁恢复"
+  );
+  assert.match(
+    processModule,
+    /const retry = await runProcess\("git", gitArgs, options\)/,
+    "清理后只重试一次，不做循环重试"
+  );
+  assert.match(gitActions, /consumeRecoveryNotes\(/, "恢复说明要汇总进动作结果");
+
+  // 多行错误详情必须能完整显示，不能被 toast 的 3 行截断和 5 秒消失吞掉。
+  assert.match(app, /message\.includes\("\\n"\)/);
+  assert.match(app, /" has-detail"/);
+  assert.match(css, /\.toast\.has-detail \.toast-message/);
+  assert.match(css, /white-space: pre-line/);
 });

@@ -21,8 +21,22 @@ node --test
 - 目录选择器的 passive 滚动监听、无重复 DOM 写入、重绘隔离，以及「无后台自动抓取 / 无前端定时刷新」的防回归断言；
 - 多选批量添加：只在添加仓库启用、切换目录不清空选择集、关闭时清空、增量更新不重建列表、批量上限与失败项保留；
 - 扫描结果的全选 / 反选入口、仓库名拼接展示、悬停完整路径、0 选中禁用添加按钮、勾选增量更新不重建结果列表；
-- `.sln` 解决方案模式：并发汇总所有仓库并按仓库缓存、范围/关键字过滤、搜索与范围工具条、重新扫描、空态可恢复、双击按条目所属 `repositoryId` 打开、`GET solutions` 与 `openVisualStudio` 的后端契约，以及「只扫当前仓库」旧实现的防回归断言；单击选中不重建列表 DOM（`selectSolutionItem` 内不得出现 `renderChanges` / `fileGroups.innerHTML`）、双击双通道与去重、打开不走 `performRepoAction` busy 队列、即时反馈与失败提示；
+- `.sln` 解决方案模式：并发汇总所有仓库并按仓库缓存、范围/关键字过滤、搜索与范围工具条、重新扫描、空态可恢复、双击按条目所属 `repositoryId` 打开、`GET solutions` 只返回根目录第一层（不递归子目录）与 `openVisualStudio` 的后端契约，以及「只扫当前仓库」旧实现的防回归断言；单击选中不重建列表 DOM（`selectSolutionItem` 内不得出现 `renderChanges` / `fileGroups.innerHTML`）、双击双通道与去重、打开不走 `performRepoAction` busy 队列、即时反馈与失败提示；
+- Diff 行内高亮：两处入口共用 `renderDiff()`、`buildInlineMarks()` / `inlineDiffSegments()` 不得退回整行输出、CSS 提供 `.diff-inline-del` / `.diff-inline-add` 与 `.diff-line.added.inline` 中性底色；用 `new Function` 加载真实源码做行为断言（word-wise：`createSaltedMD5 → createSaltedSHA` 整词高亮、汉字作为一个词、上下文行无 mark、HTML 转义、整行重写 / 超 3000 字符 / 超大块退回行级）；
 - 提交历史分支标签右键菜单：历史行 `data-commit-hash` 与徽标 `data-ref*` 数据通道、两类菜单共用渲染器与按上下文分发、只有命中徽标才拦截右键（不存在 `openCommitMenu` / `type: "commit"`）、`switch-ref` 主操作走 `checkoutRef`、远端跟踪分支与 `origin/HEAD` 解析、引用级动作登记及提交级动作（`cherryPick` 等）已移除、剪贴板回退、`GET commit` 三种比较模式与根提交回退、宽菜单样式与「菜单内部滚动不误关」守卫。
+- `index.lock` 默认逻辑的源码约束：`src/index-lock.js` 不得注册任何定时器或后台巡检、`server.js` 常驻路径不得调用恢复逻辑、用 `FileShare.None` 独占判定、只处理 Git 目录内的锁、`probe.held` 判断必须排在 `fs.unlink` 之前、`runGit()` 只重试一次、多行错误 toast 保留换行且不被 3 行截断。
+
+### `tests/index-lock.test.js`
+
+在 `.workbuddy/scratch/` 里创建真实 Git 仓库并制造锁，验证：
+
+- 只把 Git 的锁冲突文案识别为锁错误，不误判工作树里的同名文件；
+- 活锁错误文案包含进程名、PID、占用判据和 Git 原始错误；
+- `.git` 是文件（worktree / submodule）时按 `gitdir:` 解析真实 Git 目录；
+- 无人持有的空锁 → 独占探测判定陈旧 → 自动删除 + 重试成功 + 结果里回报一次提示；
+- 用真实文件句柄模拟活锁 → 绝不删除，返回 423 且错误里列出 `PID`；
+- 用户场景端到端：`commitSelected` 撞上陈旧锁后仍能成功提交，恢复说明只出现一次；
+- 工作树里被跟踪的 `index.lock` 文件永不被删。
 
 交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表；右键徽标 → 菜单项、确认弹窗、差异弹窗；右键历史行非徽标处 → 不弹自定义菜单）。探针脚本和 Chrome profile 放在 `.workbuddy/scratch/`，验证完用 `node tools/clean-scratch.js` 清理，不入库。
 
@@ -55,7 +69,7 @@ node --test
 - 只提交选中文件，同时保留其他已暂存内容；
 - 普通提交和选中提交；
 - 分支元数据、单分支/批分支删除和远程删除；
-- `GET commit` 的 patch / worktree / previous 三种差异（含根提交回退）、`createBranchAt`（不切换）、`createTagAt` / `deleteRef`、`checkoutRef` 从远端引用建立跟踪分支，以及无效引用与无效哈希的拒绝；
+- `GET commit` 的 patch / worktree / previous 三种差异（含根提交回退）、`createBranchAt`（不切换）、`createTagAt` / `deleteRef`（含 `force` 强删未合并分支）、`checkoutRef` 从远端引用建立跟踪分支，以及无效引用与无效哈希的拒绝；
 - 工作区创建、重命名、移动和删除；
 - 批量从工作区移除仓库；
 - 临时目录清理。
@@ -100,6 +114,7 @@ node tools/check-docs.js
 6. 切换编辑器，修改后按 `Ctrl+S` 保存。
 7. 从外部修改文件后再次保存，确认 HTTP 409 冲突。
 8. 检查 LF 和 CRLF 文件不会整体重写。
+9. 在 Diff 里确认行内变动片段被加深标出（删除侧深红、新增侧深绿），上下文行不标亮；整行重写时保持整行着色。
 
 ### 选中提交
 
@@ -110,6 +125,7 @@ node tools/check-docs.js
 5. 提交。
 6. 用 `git show --name-only HEAD` 确认只包含两个选中文件。
 7. 确认未勾选改动仍然保留。
+8. 在临时仓库的 `.git` 里放一个 0 字节 `index.lock` 后提交，确认自动清理并重试成功、toast 出现「已自动删除并重试成功」。再让某个程序持续打开该锁文件，确认提交报 423、错误里列出 PID 与进程名，且锁文件仍在。
 
 ### 分支
 
