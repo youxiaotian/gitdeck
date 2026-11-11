@@ -181,6 +181,10 @@
             <svg class="icon"><use href="#i-download"></use></svg>
             <span>抓取全部</span>
           </button>
+          <button class="button button-quiet" id="logButton" type="button" aria-label="查看错误日志" title="查看操作错误与服务运行日志">
+            <svg class="icon"><use href="#i-list"></use></svg>
+            <span>Log</span>
+          </button>
           <button class="button button-quiet" id="scanButton" type="button" aria-label="扫描目录" title="扫描目录">
             <svg class="icon"><use href="#i-scan"></use></svg>
             <span>扫描目录</span>
@@ -484,8 +488,8 @@
                       </div>
                     </div>
                     <div class="batch-selection-bar">
-                      <button type="button" data-file-select-all>全选当前</button>
-                      <span id="batchSelectionCount">已选 0</span>
+                      <button type="button" data-file-select-all title="全选 / 取消当前筛选结果">全选当前</button>
+                      <span id="batchSelectionCount" title="点文件行选定起点，按住 Shift 点另一行可框选一段，再点勾选框批量应用">已选 0</span>
                       <span class="batch-selection-actions">
                         <button type="button" class="batch-stage-button" id="batchStageButton" data-batch-stage disabled>
                           暂存选中

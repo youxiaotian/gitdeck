@@ -120,6 +120,7 @@
 **子功能**
 
 - 勾选文件。
+- **Shift 范围框选**：单击文件行确定起点，按住 Shift 点另一行，按当前可见顺序高亮整段（淡蓝底，与绿色的当前预览行区分）；再点范围内任一勾选框，整段统一勾选或取消，用于一次提交几十个文件。也支持直接 Shift + 点勾选框现算范围。范围提示显示在「已选 N」旁（`范围 M 个`）。
 - 全选当前筛选结果。
 - 一次暂存多个文件。
 - 一次还原多个已跟踪文件，并删除选中的未跟踪文件。
@@ -127,7 +128,9 @@
 
 **实现位置**
 
-- 状态：`selectedFiles`、`fileFilter`、`batchBusy`
+- 状态：`selectedFiles`、`fileRangeAnchor`、`fileRangeSelection`、`fileFilter`、`batchBusy`
+- 前端：`computeFileRange()`、`resolveFileCheckTargets()`、`getVisibleFilePaths()`、`handleFileRangeClick()`、`applyFileRangeHighlight()`、`resetFileRange()`、`syncFileCheckButtons()`、`updateRangeHint()`
+- 范围按 DOM 可见顺序计算（`getClientRects()` 排除折叠目录里的行），批量勾选只增量改写复选框，不重建文件列表；切换筛选、目录树/平铺视图、折叠目录、仓库、`.sln` 模式、点范围外或按 Esc 都会结束框选。
 - 服务端动作：`stageFiles`、`discardFiles`、`commitSelected`
 - `stagePaths()` 和 `commitSelected()` 使用 NUL 分隔的 pathspec 输入，规避 Windows 命令行长度限制。
 - `commitSelected()` 使用 `git commit --only`，不会提交其他已暂存文件。
@@ -233,6 +236,20 @@
 - 动作：`fetch`、`pull`、`push`
 - 拉取固定使用 `git pull --ff-only`
 - 前端：`requestRepoAction()`、`requestBulkAction()`、`executeBulkAction()`
+
+## 错误日志
+
+**用户行为**
+
+- 顶栏「抓取全部」旁的 `Log` 按钮打开日志弹窗，查看**每一个失败仓库**的完整错误（批量 toast 只显示第一条），以及服务运行日志尾部；可刷新、可逐条展开。
+- 日志只落在本机，含仓库路径，不记录会话令牌。
+
+**实现位置**
+
+- 后端：`src/action-log.js` 的 `recordApiError()`（API 失败时写 `data/errors.log` 一行 JSON，含时间 / 状态码 / 接口 / 仓库名 / 动作名 / 错误全文；超过 256KB 轮转为 `errors.log.1`）与 `readLogs()`；`logError()` 另在 `data/server.log` 留一条首行摘要。
+- `server.js` 的统一 catch 只对 `/api/` 失败记录；`src/routes.js` 的 `action` 分支把仓库名与动作名挂到错误上；新增 `GET /api/logs?limit=`（同样需要会话令牌，最多 300 条）。
+- 前端：`openLogPanel()`、`loadLogPanel()`、`renderLogPanel()`，复用 `openModal({ wide: true })`；`logRequest` 计数避免迟到响应回填到已关闭的弹窗。
+- **没有任何后台巡检**：只在请求真正失败时写文件，日志写入失败绝不影响接口响应。
 
 ## TortoiseGit 外部界面
 

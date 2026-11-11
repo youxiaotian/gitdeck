@@ -2116,6 +2116,8 @@ body.is-resizing * {
 
 .tree-file-row {
   gap: 4px;
+  /* Shift + 点击用于框选，别让浏览器把整行路径反白成文本选区。 */
+  user-select: none;
 }
 
 .tree-file-check {
@@ -2163,6 +2165,22 @@ body.is-resizing * {
   background: #e9f4ee;
   box-shadow: inset 2px 0 0 var(--green);
   color: var(--ink);
+}
+
+/* Shift 框选：整段淡蓝底 + 蓝色左边条，与绿色的「当前预览行」区分。 */
+.tree-file-row.range-selected,
+.tree-file-row.range-selected:hover {
+  background: #dce9fa;
+  box-shadow: inset 2px 0 0 #3b82f6;
+  color: var(--ink);
+}
+
+.tree-file-row.range-selected.selected {
+  box-shadow: inset 2px 0 0 var(--green);
+}
+
+.tree-file-row.range-selected .tree-file-check {
+  border-color: #6ea8e5;
 }
 
 .tree-folder-row .tree-chevron {
@@ -3768,6 +3786,92 @@ body.modal-open {
   line-height: 1.6;
   tab-size: 2;
   white-space: pre;
+}
+
+/* 顶栏 Log 弹窗：操作错误可展开看全文，服务日志可滚动。 */
+.log-hint {
+  margin: 0 0 10px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.log-section {
+  margin: 14px 0 7px;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.log-errors {
+  max-height: 38vh;
+  overflow: auto;
+}
+
+.log-entry {
+  margin-bottom: 6px;
+  border: 1px solid #cfcabe;
+  border-radius: var(--radius-sm);
+  background: #fbfaf6;
+}
+
+.log-entry summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.log-entry summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-time {
+  flex: none;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.log-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #fbe3de;
+  color: #a3452f;
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.log-detail,
+.log-server {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  background: #18231f;
+  color: #d9e2dd;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-detail {
+  max-height: 30vh;
+  border-top: 1px solid #cfcabe;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.log-server {
+  max-height: 28vh;
+  border: 1px solid #2f4039;
+  border-radius: var(--radius-sm);
 }
 
 .form-check {

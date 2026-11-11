@@ -369,6 +369,32 @@
 - 同一远端的远程分支合并为一次 push。
 - 部分失败通过 `warnings` 返回。
 
+### `GET /api/logs?limit=100`
+
+读取本机错误日志，供顶栏 `Log` 按钮使用。与其他接口一样需要 `X-GitDeck-Token`；未带令牌返回 403。`limit` 取 1–300，默认 100。
+
+```json
+{
+  "errors": [
+    {
+      "time": "2026-11-09T09:08:42.123Z",
+      "status": 422,
+      "method": "POST",
+      "path": "/api/repositories/abcdef123456/action",
+      "repository": "AgisoBase",
+      "action": "fetch",
+      "message": "Git 原始错误全文（可含换行）"
+    }
+  ],
+  "server": ["[2026-11-09T09:08:42.123Z] [ERROR] [api-error] HTTP 422 ..."],
+  "files": { "errors": "<repo>/data/errors.log", "server": "<repo>/data/server.log" }
+}
+```
+
+- `errors` 来自 `data/errors.log`（JSON Lines，按时间倒序；同毫秒按写入顺序倒序），含 `errors.log.1` 轮转文件里的旧记录。
+- `server` 是 `data/server.log` 尾部；以时间戳开头的行是一条记录，其余续行并入上一条。
+- 日志只在 API 请求失败时写入；单条错误最长 20000 字符，文件超过 256KB 轮转。静态资源请求失败不会记入。
+
 ## 常见状态码
 
 | 状态码 | 含义 |

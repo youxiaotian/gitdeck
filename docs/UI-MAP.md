@@ -4,7 +4,7 @@
 
 `public/index.html` 包含：
 
-- `header.topbar`（`#refreshAllButton` 为「抓取全部」，点击后对所有仓库 `fetch --all --prune` 并显示进度）
+- `header.topbar`（`#refreshAllButton` 为「抓取全部」，点击后对所有仓库 `fetch --all --prune` 并显示进度；紧随其后的 `#logButton` 打开错误日志弹窗）
 - `aside.repo-sidebar`
 - `main#mainPanel`
 - `aside#contextPanel`
@@ -34,7 +34,7 @@
 | TortoiseGit | `[data-repo-action="openTortoiseGit"]` |
 | 仓库批量操作 | `[data-bulk-action]`、`[data-bulk-remove]` |
 | 文件筛选 | `[data-file-filter]` |
-| 变更目录树 | `#fileGroups`、行 `[data-preview-file]` |
+| 变更目录树 | `#fileGroups`、行 `[data-preview-file]`、勾选框 `[data-file-select]`、范围高亮 `.tree-file-row.range-selected` |
 | 文件视图切换 | `#fileViewToggle`、`#fileTreeTitle` |
 | 文件批量操作 | `[data-file-select-all]`、`[data-batch-stage]`、`[data-batch-discard]` |
 | Diff/编辑器 | `#filePreview`、`#codeEditor`、`pre.diff-view`、`.diff-line`、`.diff-marker`、`mark.diff-inline-del` / `mark.diff-inline-add` |
@@ -50,6 +50,7 @@
 | 引用删除确认框 | `data-modal-action="confirm"`、`#forceDeleteRef`（默认不勾选；勾选后 `deleteRef` 带 `force: true`，失败时弹窗保持打开可直接重试） |
 | 分栏拖动 | `[data-resizer="sidebar|filetree|context"]` |
 | 主弹窗 | `#modalBackdrop`、`#modalPanel` |
+| 错误日志弹窗 | `#logButton`、`#modalPanel.modal-wide`、`.log-entry`（`details`/`summary` 展开错误全文）、`pre.log-detail`、`pre.log-server`、`[data-modal-action="log-refresh"]`；走 `GET /api/logs`，关闭弹窗会让在途请求失效 |
 | 目录选择器 | `#directoryPickerBackdrop`、`.directory-selection-bar`、`input[data-directory-check]`、`#directoryPrimaryButton` |
 | 扫描结果选择条 | `.scan-selection-bar`、`#scanSelectionSummary`、`[data-modal-action="scan-select-all\|scan-invert-selection"]`、`input[name="scan-repository"]` |
 | 右键菜单 | `#contextMenu`、`.context-menu-wide`、`button[data-menu-action]`、`.context-menu button.primary`、`button[disabled]` |
@@ -78,6 +79,7 @@
 ### 文件和预览状态
 
 - `selectedFile`、`selectedFiles`、`fileFilter`
+- `fileRangeAnchor`、`fileRangeSelection`：Shift 框选的起点与临时选区（与「提交勾选」相互独立）
 - `fileTreeMode`：`tree` 或 `flat`
 - `previewMode`、`previewKey`、`previewRequest`、`previewLoading`
 - `collapsedFolders`
@@ -169,10 +171,11 @@ render()
 - `fileTreeMode = "flat"`：按完整路径排序后平铺显示。
 - 两种视图共用筛选、勾选、预览和批量操作。
 - 当前视图保存在 `localStorage` 的 `gitdeck.fileTreeMode`。
+- Shift 框选：普通点击文件行设起点，Shift 点击另一行按**可见顺序**高亮整段（不切预览、不打断编辑器），再点范围内任一勾选框把整段写入 `selectedFiles`；Shift + 点勾选框可一步完成。范围里折叠隐藏的文件不参与。点范围外、切筛选/视图/仓库、折叠目录或按 Esc 结束框选。
 
 ## 选中文件提交流程
 
-1. 勾选文件只更新 `selectedFiles`，不重绘整棵树。
+1. 勾选文件只更新 `selectedFiles` 并增量改写复选框，不重绘整棵树；范围框选时一次写整段。
 2. `updateComposerState()` 把按钮文字改成 `提交 N 个选中文件`。
 3. 点击提交调用 `commitSelected`。
 4. 服务端只暂存选中路径并执行 `git commit --only`。

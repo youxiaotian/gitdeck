@@ -40,6 +40,10 @@
     fileTreeMode: "tree",
     selectedFile: null,
     selectedFiles: new Set(),
+    // Shift 框选是一层独立于「提交勾选」的临时选区：锚点 + 可见范围内的路径。
+    // 点范围内任一勾选框才把整段写进 selectedFiles，避免误勾隐藏文件。
+    fileRangeAnchor: null,
+    fileRangeSelection: new Set(),
     batchBusy: false,
     branchSelection: new Set(),
     branchSearch: "",
@@ -171,8 +175,12 @@
     contextMenu: document.getElementById("contextMenu"),
     toastRegion: document.getElementById("toastRegion"),
     screenReaderStatus: document.getElementById("screenReaderStatus"),
-    versionLabel: document.getElementById("versionLabel")
+    versionLabel: document.getElementById("versionLabel"),
+    logButton: document.getElementById("logButton")
   };
+
+  // 日志弹窗关闭后不能再把迟到的响应回填进其他弹窗。
+  let logRequest = 0;
 
   const actionLabels = {
     fetch: "抓取完成",
@@ -395,6 +403,9 @@
     elements.refreshAllButton.addEventListener("click", () =>
       fetchAllRepositories().catch(() => {})
     );
+    elements.logButton.addEventListener("click", () =>
+      openLogPanel().catch(() => {})
+    );
     elements.repoSearch.addEventListener("input", (event) => {
       state.search = event.target.value.trim().toLowerCase();
       renderRepoList();
@@ -475,6 +486,12 @@
       }
     });
     elements.contextMenu.addEventListener("click", handleContextMenuClick);
+    // Shift + 点击用于框选，阻止浏览器把整段路径当成文本选区（蓝色反白）。
+    elements.fileGroups.addEventListener("mousedown", (event) => {
+      if (event.shiftKey && event.target.closest("[data-preview-file]")) {
+        event.preventDefault();
+      }
+    });
     elements.fileGroups.addEventListener("dblclick", (event) => {
       // 跨仓库解决方案列表：双击直接用该条目所属的仓库打开 VS。
       const solutionRow = event.target.closest("[data-solution-key]");
@@ -1719,6 +1736,17 @@
   }
 
   function renderFileTree(entries) {
+    // 刷新后部分文件可能已提交/消失，把它们从选区里剔掉，
+    // 避免下一次点勾选框时把已不存在的路径算进来。
+    const available = new Set(entries.map((entry) => entry.path));
+    for (const filePath of state.fileRangeSelection) {
+      if (!available.has(filePath)) {
+        state.fileRangeSelection.delete(filePath);
+      }
+    }
+    if (state.fileRangeAnchor && !available.has(state.fileRangeAnchor)) {
+      state.fileRangeAnchor = null;
+    }
     updateFileViewToggle();
     updateBatchSelectionUi(entries);
     if (!entries.length) {
@@ -1728,11 +1756,13 @@
           <span>没有符合当前筛选条件的文件</span>
         </div>
       `;
+      updateRangeHint();
       return;
     }
 
     if (state.fileTreeMode === "flat") {
       elements.fileGroups.innerHTML = renderFlatFileList(entries);
+      applyFileRangeHighlight();
       return;
     }
 
@@ -1755,6 +1785,7 @@
       node.files.push(entry);
     }
     elements.fileGroups.innerHTML = renderTreeNode(root, 0, "");
+    applyFileRangeHighlight();
   }
 
   function updateFileViewToggle() {
@@ -1787,6 +1818,123 @@
       );
     }
     updateSolutionToolbar();
+  }
+
+  // Shift 框选：范围严格按「当前可见顺序」截取（已含筛选、树视图与折叠状态），
+  // 平铺与目录树两种视图下都和屏幕上看到的顺序一致。
+  function computeFileRange(visiblePaths, anchorPath, targetPath) {
+    const anchor = visiblePaths.indexOf(anchorPath);
+    const target = visiblePaths.indexOf(targetPath);
+    if (anchor < 0) {
+      return target < 0 ? [] : [targetPath];
+    }
+    if (target < 0) {
+      return [];
+    }
+    return visiblePaths.slice(
+      Math.min(anchor, target),
+      Math.max(anchor, target) + 1
+    );
+  }
+
+  // 点勾选框时决定作用范围：命中已框选的行则整段统一成「点击行的新状态」；
+  // Shift + 点勾选框则以锚点现算一段；范围外点击只切自己并结束框选。
+  function resolveFileCheckTargets({
+    visiblePaths,
+    rangeSelection,
+    clickedPath,
+    isSelected,
+    anchorPath,
+    shiftKey
+  }) {
+    let range = [...rangeSelection];
+    if (shiftKey && anchorPath) {
+      range = computeFileRange(visiblePaths, anchorPath, clickedPath);
+    }
+    const inRange = range.length > 1 && range.includes(clickedPath);
+    return {
+      paths: inRange
+        ? range.filter((item) => visiblePaths.includes(item))
+        : [clickedPath],
+      checked: !isSelected,
+      keepRange: inRange
+    };
+  }
+
+  // getClientRects() 为空说明该行在折叠的目录里，不能参与框选，
+  // 否则用户会误勾到屏幕上根本看不到的文件。
+  function getVisibleFilePaths() {
+    return [...elements.fileGroups.querySelectorAll("[data-file-select]")]
+      .filter((button) => button.getClientRects().length > 0)
+      .map((button) => button.dataset.fileSelect);
+  }
+
+  function updateRangeHint() {
+    const count = elements.batchSelectionCount;
+    if (!count) {
+      return;
+    }
+    const rangeSize = state.fileRangeSelection.size;
+    count.textContent =
+      rangeSize > 1
+        ? `已选 ${state.selectedFiles.size} · 范围 ${rangeSize} 个`
+        : `已选 ${state.selectedFiles.size}`;
+    count.title =
+      rangeSize > 1
+        ? "点范围内任一勾选框即可批量勾选 / 取消；按 Esc 或点范围外清除框选"
+        : "点文件行选定起点，按住 Shift 点另一行可框选一段，再点勾选框批量应用";
+  }
+
+  function applyFileRangeHighlight() {
+    const range = state.fileRangeSelection;
+    elements.fileGroups.querySelectorAll(".tree-file-row").forEach((row) => {
+      const check = row.querySelector("[data-file-select]");
+      row.classList.toggle(
+        "range-selected",
+        Boolean(check && range.has(check.dataset.fileSelect))
+      );
+    });
+    updateRangeHint();
+  }
+
+  function resetFileRange(anchorPath = null) {
+    state.fileRangeSelection.clear();
+    state.fileRangeAnchor = anchorPath;
+    elements.fileGroups
+      .querySelectorAll(".tree-file-row.range-selected")
+      .forEach((row) => row.classList.remove("range-selected"));
+    updateRangeHint();
+  }
+
+  function handleFileRangeClick(filePath) {
+    const paths = getVisibleFilePaths();
+    if (!paths.includes(filePath)) {
+      return;
+    }
+    const anchor =
+      state.fileRangeAnchor || state.selectedFile?.path || filePath;
+    state.fileRangeAnchor = anchor;
+    state.fileRangeSelection = new Set(
+      computeFileRange(paths, anchor, filePath)
+    );
+    // 只切 class，不重建列表：否则在途的双击 / 焦点都会丢。
+    applyFileRangeHighlight();
+  }
+
+  function syncFileCheckButtons() {
+    elements.fileGroups
+      .querySelectorAll("[data-file-select]")
+      .forEach((button) => {
+        const filePath = button.dataset.fileSelect;
+        const selected = state.selectedFiles.has(filePath);
+        button.classList.toggle("checked", selected);
+        button.setAttribute("aria-pressed", String(selected));
+        button.setAttribute(
+          "aria-label",
+          `${selected ? "取消选择" : "选择"} ${filePath}`
+        );
+        button.innerHTML = selected ? icon("check") : "";
+      });
   }
 
   function renderFlatFileList(entries) {
@@ -1848,7 +1996,7 @@
     const allVisibleSelected =
       visibleEntries.length > 0 &&
       visibleEntries.every((entry) => state.selectedFiles.has(entry.path));
-    elements.batchSelectionCount.textContent = `已选 ${selectedCount}`;
+    updateRangeHint();
     elements.batchStageButton.disabled =
       selectedCount === 0 || state.batchBusy;
     elements.batchDiscardButton.disabled =
@@ -3282,6 +3430,7 @@
       fetchSolutions();
     }
     state.selectedFiles.clear();
+    resetFileRange();
     state.batchBusy = false;
     state.branchSelection.clear();
     state.branchSearch = "";
@@ -3489,6 +3638,8 @@
     const fileFilter = event.target.closest("[data-file-filter]");
     if (fileFilter) {
       state.fileFilter = fileFilter.dataset.fileFilter;
+      // 可见顺序变了，旧范围不再对应屏幕上的行。
+      resetFileRange();
       renderChanges(state.detail.summary);
       return;
     }
@@ -3496,19 +3647,34 @@
     const fileSelect = event.target.closest("[data-file-select]");
     if (fileSelect) {
       const filePath = fileSelect.dataset.fileSelect;
-      if (state.selectedFiles.has(filePath)) {
-        state.selectedFiles.delete(filePath);
-      } else {
-        state.selectedFiles.add(filePath);
+      const visiblePaths = getVisibleFilePaths();
+      // 也支持直接 Shift + 点勾选框：从锚点到这一行现算范围并高亮。
+      if (event.shiftKey && state.fileRangeAnchor) {
+        state.fileRangeSelection = new Set(
+          computeFileRange(visiblePaths, state.fileRangeAnchor, filePath)
+        );
+        applyFileRangeHighlight();
       }
-      const batchSelected = state.selectedFiles.has(filePath);
-      fileSelect.classList.toggle("checked", batchSelected);
-      fileSelect.setAttribute("aria-pressed", String(batchSelected));
-      fileSelect.setAttribute(
-        "aria-label",
-        `${batchSelected ? "取消选择" : "选择"} ${filePath}`
-      );
-      fileSelect.innerHTML = batchSelected ? icon("check") : "";
+      const { paths, checked, keepRange } = resolveFileCheckTargets({
+        visiblePaths,
+        rangeSelection: state.fileRangeSelection,
+        clickedPath: filePath,
+        isSelected: state.selectedFiles.has(filePath),
+        anchorPath: state.fileRangeAnchor,
+        shiftKey: event.shiftKey
+      });
+      for (const targetPath of paths) {
+        if (checked) {
+          state.selectedFiles.add(targetPath);
+        } else {
+          state.selectedFiles.delete(targetPath);
+        }
+      }
+      if (!keepRange) {
+        // 点范围外视作重新选择：清掉旧框选，并把这一行设为新起点。
+        resetFileRange(filePath);
+      }
+      syncFileCheckButtons();
       updateBatchSelectionUi(getVisibleEntries());
       updateComposerState();
       return;
@@ -3516,6 +3682,7 @@
 
     const selectAllFiles = event.target.closest("[data-file-select-all]");
     if (selectAllFiles) {
+      resetFileRange();
       const visibleEntries = getVisibleEntries();
       const allSelected = visibleEntries.every((entry) =>
         state.selectedFiles.has(entry.path)
@@ -3546,6 +3713,7 @@
 
     const treeFolder = event.target.closest("[data-tree-folder]");
     if (treeFolder) {
+      resetFileRange();
       const folderPath = treeFolder.dataset.treeFolder;
       if (state.collapsedFolders.has(folderPath)) {
         state.collapsedFolders.delete(folderPath);
@@ -3558,6 +3726,7 @@
 
     const solutionFilter = event.target.closest("[data-action='toggle-solution-filter']");
     if (solutionFilter) {
+      resetFileRange();
       state.solutionFilter = !state.solutionFilter;
       state.solutionsError = "";
       state.selectedFile = null;
@@ -3609,7 +3778,17 @@
 
     const previewFile = event.target.closest("[data-preview-file]");
     if (previewFile) {
-      requestPreviewFile(previewFile.dataset.previewFile);
+      const filePath = previewFile.dataset.previewFile;
+      if (!state.solutionFilter && event.shiftKey) {
+        // 只框选、不切预览：Shift 选择不应打断正在看的 diff 或编辑器。
+        handleFileRangeClick(filePath);
+        return;
+      }
+      if (!state.solutionFilter) {
+        // 普通点击确定下一轮 Shift 框选的起点，并结束上一次框选。
+        resetFileRange(filePath);
+      }
+      requestPreviewFile(filePath);
       return;
     }
 
@@ -3826,6 +4005,7 @@
         closeWorkspaceDropdown();
       } else {
         hideContextMenu();
+        resetFileRange();
       }
       return;
     }
@@ -4118,6 +4298,7 @@
       return;
     }
     if (action === "toggle-file-view") {
+      resetFileRange();
       state.fileTreeMode =
         state.fileTreeMode === "tree" ? "flat" : "tree";
       persistFileTreeMode();
@@ -5651,6 +5832,10 @@
 
   async function handleModalAction(button) {
     const action = button.dataset.modalAction;
+    if (action === "log-refresh") {
+      await withModalButton(button, () => loadLogPanel(logRequest));
+      return;
+    }
     if (action === "browse" || action === "browse-scan") {
       openDirectoryPicker(
         action === "browse" ? "addRepositoryPath" : "scanRoot",
@@ -6263,6 +6448,85 @@
     });
   }
 
+  // 顶栏 Log：批量操作的 toast 只展示第一条错误，完整失败记录与服务日志
+  // 在这里逐条摊开，方便排查「哪几个仓库、各自为什么失败」。
+  function formatLogTime(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? String(value || "")
+      : date.toLocaleString("zh-CN", { hour12: false });
+  }
+
+  function renderLogPanel(data) {
+    const errors = Array.isArray(data?.errors) ? data.errors : [];
+    const server = Array.isArray(data?.server) ? data.server : [];
+    const errorItems = errors.length
+      ? errors
+          .map(
+            (entry, index) => `
+              <details class="log-entry"${index === 0 ? " open" : ""}>
+                <summary>
+                  <span class="log-time">${escapeHtml(formatLogTime(entry.time))}</span>
+                  <span class="log-badge">HTTP ${escapeHtml(String(entry.status ?? ""))}</span>
+                  <strong>${escapeHtml(
+                    entry.repository || entry.path || "接口请求"
+                  )}${entry.action ? ` · ${escapeHtml(entry.action)}` : ""}</strong>
+                </summary>
+                <pre class="log-detail">${escapeHtml(entry.message || "")}${
+                  entry.path
+                    ? `\n\n接口：${escapeHtml(entry.method || "")} ${escapeHtml(entry.path)}`
+                    : ""
+                }</pre>
+              </details>`
+          )
+          .join("")
+      : `<p class="form-help">暂无记录的操作错误。之后失败的 Git 动作会连错误全文一起写在这里。</p>`;
+
+    elements.modalBody.innerHTML = `
+      <p class="log-hint">操作错误保存在 <code>data/errors.log</code>，服务日志保存在 <code>data/server.log</code>；两者都只落在本机，内容可能包含仓库路径。操作错误从新后端启动后开始记录，之前的失败不会回溯补写。</p>
+      <h4 class="log-section">操作错误（最近 ${errors.length} 条）</h4>
+      <div class="log-errors">${errorItems}</div>
+      <h4 class="log-section">服务运行日志（最近 ${server.length} 条）</h4>
+      ${
+        server.length
+          ? `<pre class="log-server">${escapeHtml(server.join("\n"))}</pre>`
+          : `<p class="form-help">服务运行日志为空。</p>`
+      }
+    `;
+  }
+
+  async function loadLogPanel(requestId) {
+    try {
+      const data = await api("/api/logs?limit=100");
+      if (requestId !== logRequest || elements.modalBackdrop.hidden) {
+        return;
+      }
+      renderLogPanel(data);
+    } catch (error) {
+      if (requestId !== logRequest || elements.modalBackdrop.hidden) {
+        return;
+      }
+      elements.modalBody.innerHTML = `<p class="form-help">读取日志失败：${escapeHtml(
+        error.message
+      )}。若提示接口不存在，请关掉窗口重新运行一次 <code>start.cmd</code> 加载新后端。</p>`;
+    }
+  }
+
+  async function openLogPanel() {
+    const requestId = ++logRequest;
+    openModal({
+      eyebrow: "运行日志",
+      title: "错误日志",
+      wide: true,
+      body: `<p class="form-help">正在读取 data/errors.log 与 data/server.log…</p>`,
+      footer: `
+        <button class="button button-quiet" type="button" data-modal-action="log-refresh">刷新</button>
+        <button class="button button-secondary" type="button" data-action="close-modal">关闭</button>
+      `
+    });
+    await loadLogPanel(requestId);
+  }
+
   function showConfirm({
     eyebrow,
     title,
@@ -6337,6 +6601,8 @@
     elements.modalBackdrop.hidden = true;
     elements.modalBody.innerHTML = "";
     elements.modalFooter.innerHTML = "";
+    // 让仍在读取的日志请求失效，避免它回填到之后打开的其他弹窗。
+    logRequest += 1;
     state.modalAction = null;
     state.modalType = "";
     state.historyRefDraft = null;

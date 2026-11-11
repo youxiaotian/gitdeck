@@ -689,6 +689,22 @@ test("本地 API 能端到端管理真实 Git 仓库", async (context) => {
     "force=true 后未合并分支应被真正删除"
   );
 
+  // 失败的 Git 动作要进错误日志：批量抓取的 toast 只显示第一条错误，
+  // 其余失败全文必须能在顶栏 Log 弹窗里逐条查到。
+  const errorLogs = await callApi(baseUrl, token, "/api/logs?limit=50");
+  assert.ok(Array.isArray(errorLogs.errors));
+  const refFailure = errorLogs.errors.find(
+    (entry) => entry.action === "deleteRef" && entry.path.endsWith("/action")
+  );
+  assert.ok(refFailure, "失败的 deleteRef 动作必须被记录到错误日志");
+  assert.equal(refFailure.status, 422);
+  assert.ok(refFailure.repository, "错误日志要标明是哪个仓库");
+  assert.match(refFailure.message, /not fully merged/, "错误全文不得被截断");
+  assert.ok(Array.isArray(errorLogs.server));
+  assert.ok(errorLogs.server.length > 0, "服务运行日志尾部也应返回");
+  const untrustedLog = await fetch(`${baseUrl}/api/logs`);
+  assert.equal(untrustedLog.status, 403, "日志接口同样需要会话令牌");
+
   runGit(repositoryPath, ["branch", "batch-a"]);
   runGit(repositoryPath, ["branch", "batch-b"]);
   runGit(repositoryPath, ["push", "-u", "origin", "batch-a", "batch-b"]);

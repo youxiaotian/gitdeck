@@ -104,6 +104,19 @@ Git 发现仓库所有者与当前 Windows 账号不同。GitDeck 导入和后�
 4. 有其他 Git 进程运行时不能直接删除锁文件。
 5. 若报错是 `File exists`（残留的陈旧锁）而不是权限不足，GitDeck 会自动判定占用情况并处理，见下文「创建提交报 `index.lock` / `File exists`」。
 
+## 抓取全部报 `refs/remotes/origin/xxx.lock: File exists`
+
+这是 `git fetch --all --prune` 的 **prune 阶段**失败：远端分支在服务器上已删除，Git 需要删掉本地对应的远端跟踪引用；删除每个 ref 前都要先创建 `<ref>.lock`。如果该文件此刻已存在（另一个 git 进程正在写同一个 ref，或上一次被中断的抓取留下了陈旧 ref 锁），就会报 `cannot lock ref ... Unable to create ... File exists`，并附上一串 `[deleted] (none) -> origin/...`。
+
+与 `index.lock` 的区别：现有自动清理（`src/index-lock.js`）只识别 `.git/index.lock`，**不覆盖 `refs/**/*.lock`**，所以这类失败不会被自动清理重试。批量抓取时各仓库彼此独立，通常只有少数仓库撞锁，而 toast 只显示第一条错误。
+
+排查与处理：
+
+1. 点顶栏 `Log` 查看每个失败仓库的完整错误（含仓库名与动作名），服务运行日志尾部也可在弹窗里看到。
+2. 确认没有 Git 客户端 / IDE 正在操作该仓库；`*.lock` 是 0 字节、不写 PID，无法从文件本身反查创建者，只能以独占打开判断是否仍被持有。
+3. 无人持有的陈旧 ref 锁可以移除后重试；仍有进程持有时**不要删**，关掉对应程序再重试。
+4. `git fetch --all --prune` 可以安全地重复执行，多数情况下直接再点一次「抓取全部」即可通过。
+
 ## 提示“该目录不是 Git 仓库”
 
 - 确认目录位于带 `.git` 的工作树中。

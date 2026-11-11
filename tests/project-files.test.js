@@ -946,3 +946,106 @@ test("index.lock 默认逻辑：只清理陈旧锁、绝不删活锁、不做后
   assert.match(css, /\.toast\.has-detail \.toast-message/);
   assert.match(css, /white-space: pre-line/);
 });
+
+function loadLogRenderer(appSource) {
+  const start = appSource.indexOf("  function formatLogTime(value) {");
+  const end = appSource.indexOf("  function showConfirm({");
+  assert.ok(start > 0 && end > start, "应能从 app.js 提取日志弹窗渲染函数");
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  const elements = {
+    modalBody: { innerHTML: "" },
+    modalBackdrop: { hidden: false }
+  };
+  const factory = new Function(
+    "escapeHtml",
+    "elements",
+    `${appSource.slice(start, end)}\nreturn { renderLogPanel, formatLogTime };`
+  );
+  return { ...factory(escapeHtml, elements), elements };
+}
+
+test("Log 弹窗渲染真实错误全文，不截断也不产生 HTML 注入", async () => {
+  const app = await fs.readFile(path.join(ROOT, "public", "app.js"), "utf8");
+  const { renderLogPanel, elements } = loadLogRenderer(app);
+
+  renderLogPanel({
+    errors: [
+      {
+        time: "2026-11-09T09:08:42.123Z",
+        status: 422,
+        method: "POST",
+        path: "/api/repositories/abcdef123456/action",
+        repository: "AgisoBase",
+        action: "fetch",
+        message:
+          "error: cannot lock ref 'refs/remotes/origin/yg_keyhelper'\n<script>alert(1)</script>"
+      }
+    ],
+    server: ["[2026-11-09T09:00:00.000Z] [WARN] [index-lock] 已清理陈旧锁"]
+  });
+  const html = elements.modalBody.innerHTML;
+  assert.match(html, /AgisoBase/);
+  assert.match(html, /fetch/);
+  assert.match(html, /HTTP 422/);
+  assert.match(html, /cannot lock ref/, "错误全文必须完整保留");
+  assert.match(html, /&lt;script&gt;/, "错误内容必须 HTML 转义");
+  assert.ok(!html.includes("<script>alert"), "不得注入可执行标签");
+  assert.match(html, /<details class="log-entry" open>/, "第一条错误默认展开");
+  assert.match(html, /log-server/);
+  assert.match(html, /index-lock/, "服务日志尾部也要展示");
+
+  renderLogPanel({ errors: [], server: [] });
+  assert.match(elements.modalBody.innerHTML, /暂无记录的操作错误/);
+  assert.match(elements.modalBody.innerHTML, /服务运行日志为空/);
+});
+
+test("顶栏 Log 按钮只读取本机错误日志，不引入任何后台巡检", async () => {
+  const [html, app, server, routes, actionLog] = await Promise.all([
+    fs.readFile(path.join(ROOT, "public", "index.html"), "utf8"),
+    fs.readFile(path.join(ROOT, "public", "app.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "server.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "routes.js"), "utf8"),
+    fs.readFile(path.join(ROOT, "src", "action-log.js"), "utf8")
+  ]);
+
+  assert.match(html, /id="logButton"/, "顶栏要有 Log 按钮");
+  assert.ok(
+    html.indexOf('id="refreshAllButton"') < html.indexOf('id="logButton"') &&
+      html.indexOf('id="logButton"') < html.indexOf('id="scanButton"'),
+    "Log 必须紧挨在「抓取全部」后面"
+  );
+  assert.match(app, /elements\.logButton\.addEventListener\("click"/);
+  assert.match(app, /\/api\/logs\?limit=100/, "Log 弹窗走日志接口");
+  assert.match(app, /logRequest \+= 1/, "关闭弹窗要让在途日志请求失效");
+  assert.match(app, /data-modal-action="log-refresh"/);
+  assert.match(routes, /url\.pathname === "\/api\/logs"/);
+  assert.match(routes, /readLogs\(limit\)/);
+  assert.match(
+    routes,
+    /error\.gitdeckRepository = repository\.name/,
+    "失败动作要带上仓库名与动作名"
+  );
+  assert.match(server, /recordApiError\(error, request\)/);
+  assert.match(
+    server,
+    /startsWith\("\/api\/"\)/,
+    "静态资源失败不该淹没错误日志"
+  );
+  assert.match(actionLog, /path\.join\(DATA_ROOT, "errors\.log"\)/);
+  assert.doesNotMatch(
+    actionLog,
+    /SESSION_TOKEN|x-gitdeck-token/i,
+    "日志不得记录会话令牌"
+  );
+  assert.doesNotMatch(
+    actionLog,
+    /setInterval|setTimeout|watchFile|cron/,
+    "日志模块不得注册任何后台任务"
+  );
+});

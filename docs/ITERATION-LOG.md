@@ -2,6 +2,26 @@
 
 本文件记录已经实现且用户可感知的迭代。新记录放在顶部；复杂功能可以在 `docs/features/` 下新增详细记录。
 
+## 2026-11-11 - 文件列表支持 Shift 范围框选并批量勾选提交
+
+- 用户反馈：改动文件多时逐行点勾选框太慢，希望「选中第一个 → 按住 Shift 点后面一个 → 中间整段被选中（类似 VSCode / TortoiseGit 的多行高亮）→ 点其中一个勾选框就批量都勾上」，以便一次提交。
+- 根因：原先文件行只有「单击切预览」与「单行勾选」两条路径，`state.selectedFiles` 没有范围选区这一层；「全选当前」只能全选当前筛选结果，无法只挑连续一段。
+- 实现（纯前端 `public/app.js` / `styles.css` / `index.html`）：
+  - 新增 `fileRangeAnchor` + `fileRangeSelection`，与「提交勾选」`selectedFiles` **相互独立**：Shift 框选只是临时高亮，不会预先改动提交选择。
+  - 普通点击文件行设起点并结束上一次框选；Shift 点击另一行调 `computeFileRange()` 按**当前可见 DOM 顺序**（`getClientRects()` 排除折叠目录隐藏行）截取含两端的整段，`applyFileRangeHighlight()` 只切 `.range-selected` class，不切预览、不打断编辑器、不重建列表。
+  - 点范围内任一勾选框时 `resolveFileCheckTargets()` 把整段统一成「点击行的新状态」（已勾选则批量取消），`syncFileCheckButtons()` 增量改写复选框；也支持直接 Shift + 点勾选框一步框选并勾选。范围大小显示在「已选 N · 范围 M 个」，并带手势说明 title。
+  - 切换筛选 / 目录树-平铺视图 / 折叠目录 / 仓库 / `.sln` 模式、点范围外、全选、按 Esc 都会 `resetFileRange()`；`renderFileTree()` 会剔除刷新后已消失的路径。`mousedown` 阻止 Shift 点击产生文本选区，CSS 加 `user-select: none` 兜底。
+- 验证：`tests/file-range.test.js` 6 项（从 `app.js` 抽取真实纯函数做正/逆序、失效锚点、批量勾选/取消、Shift 点勾选框、隐藏文件不参与等行为断言 + 源码约束）；独立端口 + 独立数据目录 + 沙盒测试仓库的 CDP 真实鼠标点检：Shift 框选 6 行 → 点第 3 行勾选框 6 个全勾上且按钮显示「提交 6 个选中文件」→ 再点一次批量取消 → 点范围外只剩 1 个，页面 0 个 JS 错误。`node --test` 全通过、`check-docs` 23 份。
+
+## 2026-11-09 - 顶栏新增 Log 按钮，批量操作失败可逐条查看完整错误
+
+- 用户反馈：「抓取全部」显示 21 成功 / 3 失败，toast 里只有第一条错误的全文（其余看不到）；要求排查原因并在「抓取全部」旁加 `Log` 按钮查看错误日志。
+- 只读取证：`AgisoBase/.git` 下已无任何 `*.lock`，`refs/remotes/origin` 多个目录在 17:08:42 被更新；`data/server.log` 只有启动 / 退出 / 一条 index-lock 清理记录，**Git 动作失败完全没有落盘**。失败原因是 `git fetch --all --prune` 的 prune 阶段创建 `refs/remotes/origin/yg_keyhelper.lock` 时该锁已存在（`File exists`），属远端引用锁，现有 `src/index-lock.js` 只识别 `.git/index.lock`，未覆盖。
+- 实现：`src/action-log.js` 在 API 失败时把结构化记录（时间 / 状态码 / 接口 / 仓库名 / 动作名 / 错误全文）写 `data/errors.log`（JSON Lines、256KB 轮转），并由 `logError()` 在 `server.log` 留摘要；`server.js` 统一 catch 只记录 `/api/` 失败，`src/routes.js` 的 `action` 分支附加仓库名与动作名；新增 `GET /api/logs?limit=`（需会话令牌，最多 300 条）。
+- 前端：`#logButton` 紧挨「抓取全部」，复用宽弹窗展示可展开的操作错误全文 + `server.log` 尾部，带刷新；`logRequest` 计数避免迟到响应回填到已关闭弹窗。
+- 边界：无后台巡检、不记录令牌、只写 `<repo>/data/`；日志写入失败不影响接口响应。未扩展 `refs/**/*.lock` 的自动清理（用户本轮只要求日志）。
+- 验证：`tests/action-log.test.js` 7 项（真实文件读写 / 轮转 / 坏行 / 多行 / 续行合并）、`tests/api.test.js` 端到端（失败 `deleteRef` 进日志、403 鉴权）、`tests/project-files.test.js` 防回归；`node --test` 全通过、`check-docs` 23 份。
+
 ## 2026-11-09 - index.lock 冲突增加默认处理：陈旧锁自动清理，活锁报出占用进程
 
 - 用户反馈：提交时报 `index.lock` / `File exists` 删不掉；上一轮只读取证确认是旧版后台动作被强杀后留下的 3 天陈旧锁（0 字节、无人持有）。用户要求把「无人持有就删掉、有人持有就打印是谁」做成默认逻辑。

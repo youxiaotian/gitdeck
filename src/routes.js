@@ -5,6 +5,7 @@
 // 修改注意：新增顶级路由在此登记；仓库级路由的正则限定 12 位十六进制 id。
 
 const { STORE } = require("./config");
+const { readLogs } = require("./action-log");
 const {
   httpError,
   isTrustedRequest,
@@ -58,6 +59,16 @@ async function handleApi(request, response, url) {
   // 任何已鉴权的 API 活动都算窗口存活：用户在界面上操作时，
   // 即使心跳定时器被浏览器节流，服务也不该被看门狗误杀。
   touchHeartbeat();
+
+  // 顶栏 Log 按钮：只在本机会话里读取 data/errors.log 与 server.log 尾部。
+  if (request.method === "GET" && url.pathname === "/api/logs") {
+    const limit = Math.min(
+      Math.max(Number(url.searchParams.get("limit")) || 100, 1),
+      300
+    );
+    sendJson(response, 200, readLogs(limit));
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/bootstrap") {
     const state = await STORE.loadState();
@@ -255,8 +266,19 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && route === "action") {
     const body = await readJson(request);
-    const result = await runRepositoryAction(repository, body);
-    sendJson(response, 200, result);
+    try {
+      const result = await runRepositoryAction(repository, body);
+      sendJson(response, 200, result);
+    } catch (error) {
+      // 批量抓取时 toast 只展示第一条错误，把仓库名 / 动作名挂到错误上，
+      // 统一 catch 才能把「哪个仓库的哪个动作失败」写进错误日志。
+      if (error && typeof error === "object") {
+        error.gitdeckRepository = repository.name || repository.path;
+        error.gitdeckRepositoryId = repository.id;
+        error.gitdeckAction = String(body?.action || "");
+      }
+      throw error;
+    }
     return;
   }
 

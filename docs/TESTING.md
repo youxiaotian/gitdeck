@@ -24,7 +24,8 @@ node --test
 - `.sln` 解决方案模式：并发汇总所有仓库并按仓库缓存、范围/关键字过滤、搜索与范围工具条、重新扫描、空态可恢复、双击按条目所属 `repositoryId` 打开、`GET solutions` 只返回根目录第一层（不递归子目录）与 `openVisualStudio` 的后端契约，以及「只扫当前仓库」旧实现的防回归断言；单击选中不重建列表 DOM（`selectSolutionItem` 内不得出现 `renderChanges` / `fileGroups.innerHTML`）、双击双通道与去重、打开不走 `performRepoAction` busy 队列、即时反馈与失败提示；
 - Diff 行内高亮：两处入口共用 `renderDiff()`、`buildInlineMarks()` / `inlineDiffSegments()` 不得退回整行输出、CSS 提供 `.diff-inline-del` / `.diff-inline-add` 与 `.diff-line.added.inline` 中性底色；用 `new Function` 加载真实源码做行为断言（word-wise：`createSaltedMD5 → createSaltedSHA` 整词高亮、汉字作为一个词、上下文行无 mark、HTML 转义、整行重写 / 超 3000 字符 / 超大块退回行级）；
 - 提交历史分支标签右键菜单：历史行 `data-commit-hash` 与徽标 `data-ref*` 数据通道、两类菜单共用渲染器与按上下文分发、只有命中徽标才拦截右键（不存在 `openCommitMenu` / `type: "commit"`）、`switch-ref` 主操作走 `checkoutRef`、远端跟踪分支与 `origin/HEAD` 解析、引用级动作登记及提交级动作（`cherryPick` 等）已移除、剪贴板回退、`GET commit` 三种比较模式与根提交回退、宽菜单样式与「菜单内部滚动不误关」守卫。
-- `index.lock` 默认逻辑的源码约束：`src/index-lock.js` 不得注册任何定时器或后台巡检、`server.js` 常驻路径不得调用恢复逻辑、用 `FileShare.None` 独占判定、只处理 Git 目录内的锁、`probe.held` 判断必须排在 `fs.unlink` 之前、`runGit()` 只重试一次、多行错误 toast 保留换行且不被 3 行截断。
+- `index.lock` 默认逻辑的源码约束：`src/index-lock.js` 不得注册任何定时器或后台巡检、`server.js` 常驻路径不得调用恢复逻辑、用 `FileShare.None` 独占判定、只处理 Git 目录内的锁、`probe.held` 判断必须排在 `fs.unlink` 之前、`runGit()` 只重试一次、多行错误 toast 保留换行且不被 3 行截断；
+- 文件列表 Shift 框选：`tests/file-range.test.js` 从 `app.js` 抽取真实纯函数做行为断言（正/逆序范围含两端、锚点或目标失效、范围里点勾选框整段统一勾选/取消、Shift + 点勾选框、折叠隐藏文件不参与、范围外只切单行），并有源码约束断言（勾选分支不重建 `fileGroups`、Shift 点击阻止文本选区、视图切换清理选区、无后台任务）。
 
 ### `tests/index-lock.test.js`
 
@@ -38,7 +39,7 @@ node --test
 - 用户场景端到端：`commitSelected` 撞上陈旧锁后仍能成功提交，恢复说明只出现一次；
 - 工作树里被跟踪的 `index.lock` 文件永不被删。
 
-交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表；右键徽标 → 菜单项、确认弹窗、差异弹窗；右键历史行非徽标处 → 不弹自定义菜单）。探针脚本和 Chrome profile 放在 `.workbuddy/scratch/`，验证完用 `node tools/clean-scratch.js` 清理，不入库。
+交互类改动另用 CDP 驱动真实浏览器点击验证（勾选 → 跨目录 → 批量添加 → 后端落盘与前端列表；右键徽标 → 菜单项、确认弹窗、差异弹窗；右键历史行非徽标处 → 不弹自定义菜单；文件列表普通点击 → Shift 点击 → 点范围内勾选框 → 批量勾选/取消 → 点范围外）。探针用独立端口 + 独立数据目录 + 沙盒测试仓库，不碰用户正在运行的 4321 服务与用户仓库。探针脚本和 Chrome profile 放在 `.workbuddy/scratch/`，验证完用 `node tools/clean-scratch.js` 清理，不入库。
 
 ### `tests/desktop.test.js`
 
@@ -72,6 +73,7 @@ node --test
 - `GET commit` 的 patch / worktree / previous 三种差异（含根提交回退）、`createBranchAt`（不切换）、`createTagAt` / `deleteRef`（含 `force` 强删未合并分支）、`checkoutRef` 从远端引用建立跟踪分支，以及无效引用与无效哈希的拒绝；
 - 工作区创建、重命名、移动和删除；
 - 批量从工作区移除仓库；
+- 错误日志：`tests/action-log.test.js` 用独立 `GITDECK_DATA_DIR` 验证结构化记录（仓库名 / 动作 / 多行错误全文）、时间倒序、坏行容错、256KB 轮转后 `.1` 可读、`server.log` 多行续行合并、异常输入不抛错；`tests/api.test.js` 验证真实服务里失败的 `deleteRef` 进日志、`GET /api/logs` 返回结构与 403 鉴权；`tests/project-files.test.js` 断言 Log 按钮位置、无后台巡检、不记录会话令牌，并用 `new Function` 加载真实 `renderLogPanel()` 验证错误全文不截断、HTML 转义、空态与第一条默认展开；
 - 临时目录清理。
 
 ## 文档检查
@@ -111,10 +113,11 @@ node tools/check-docs.js
 3. 刷新页面，确认上次文件视图仍保留。
 4. 切换已暂存、未暂存、未跟踪筛选。
 5. 勾选文件，确认批量暂存和还原。
-6. 切换编辑器，修改后按 `Ctrl+S` 保存。
-7. 从外部修改文件后再次保存，确认 HTTP 409 冲突。
-8. 检查 LF 和 CRLF 文件不会整体重写。
-9. 在 Diff 里确认行内变动片段被加深标出（删除侧深红、新增侧深绿），上下文行不标亮；整行重写时保持整行着色。
+6. 单击一个文件行，按住 Shift 点后面某行，确认中间整段淡蓝高亮、提示显示「范围 N 个」；点范围内任一勾选框确认整段都勾上且提交按钮显示对应数量；再点一次确认整段取消；点范围外或按 Esc 确认框选清除。折叠目录后确认隐藏文件不会被批量勾上。
+7. 切换编辑器，修改后按 `Ctrl+S` 保存。
+8. 从外部修改文件后再次保存，确认 HTTP 409 冲突。
+9. 检查 LF 和 CRLF 文件不会整体重写。
+10. 在 Diff 里确认行内变动片段被加深标出（删除侧深红、新增侧深绿），上下文行不标亮；整行重写时保持整行着色。
 
 ### 选中提交
 

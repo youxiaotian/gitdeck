@@ -49,6 +49,12 @@ function writeLine(text) {
   }
 }
 
+// 给 action-log 用：直接写一行日志，不经过 console（测试环境也不会吵）。
+// 仍然复用同一套轮转与「写失败不影响主流程」策略。
+function logError(text) {
+  writeLine(`[ERROR] ${text}`);
+}
+
 function installFileLogging() {
   if (installed) {
     return LOG_FILE;
@@ -69,4 +75,4 @@ function installFileLogging() {
   return LOG_FILE;
 }
 
-module.exports = { installFileLogging, LOG_FILE };
+module.exports = { installFileLogging, logError, LOG_FILE };

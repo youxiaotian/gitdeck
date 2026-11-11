@@ -13,6 +13,7 @@ const { spawn } = require("node:child_process");
 const { DATA_ROOT, DEFAULT_PORT, HOST } = require("./src/config");
 const { handleApi } = require("./src/routes");
 const { sendError } = require("./src/http");
+const { recordApiError } = require("./src/action-log");
 const { serveStatic } = require("./src/static");
 const desktop = require("./src/desktop");
 const { killActiveChildren } = require("./src/process");
@@ -53,6 +54,10 @@ async function main() {
       }
       await serveStatic(response, url.pathname);
     } catch (error) {
+      // 只记录 API 失败；静态资源 404 之类不该淹没错误日志。
+      if (String(request.url || "").startsWith("/api/")) {
+        recordApiError(error, request);
+      }
       sendError(response, error);
     }
   });
